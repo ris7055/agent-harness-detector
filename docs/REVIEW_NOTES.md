@@ -47,3 +47,23 @@ when `ALLOW_DATA_COLLECTION=false`.
 - Scorer `/v1/*` and the console dashboard do not exist yet.
 - `decisions` rows written by the portal stub carry `score=NULL`,
   `model_version='stub'`.
+
+## Review: feat/d1-portal
+
+Reviewed by Claude against SPEC/AGENTS. Overall solid: structure matches §3, all queries are parameterised, passwords hashed (PBKDF2), no secrets committed, and the 18 tests pass (re-run against a separate PostgreSQL). Fix the items below on this branch, then it can merge.
+
+**MUST 1: Transfer amount is trusted from a hidden form field.** `POST /transfer/confirm` takes `amount_cents` from the client and never checks it is positive. Reproduced: posting `amount_cents=-100000` as `ravi` *increased* the balance by RM 1,000. Fix: in `/transfer/confirm`, reject `amount_cents <= 0`, reject `amount_cents > balance` on every path (allow, step_up, block), and return 400 if the user has no account. Re-check `amount_cents > 0` in the OTP completion path too. Add a test for a negative and a zero amount.
+
+**MUST 2: Each data-collection task must be its own session.** `/collect` (POST) writes the label onto the browser's existing `hg_sid`, and `record_label` uses `ON CONFLICT DO NOTHING`. If a volunteer does two tasks in the same browser, both tasks land in one session and only the first task's label survives, which corrupts the training data. Fix: when a task starts (`POST /collect` and `GET /collect/agent`), issue a **new** `hg_sid` (new UUID, new `sessions` row, set the cookie on the response), clear `hg_auth` (log out), then write the label for the new session id. Add a test: two consecutive `/collect` starts in one client produce two different session ids, each with its own label.
+
+**SHOULD 1: Open redirect on login.** `next="//evil.example"` redirects off-site (reproduced). Only accept `next` values that start with `/` and do not start with `//` or `/\`; otherwise use `/dashboard`.
+
+**SHOULD 2: Loan OTPs live in process memory.** On Cloud Run with more than one instance (or after a restart) the OTP is lost. The spec now adds `otp_code text` and `otp_attempts int default 0` to `loan_applications` (SPEC §8.1). Add them in `schema.sql` with `ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS ...` so existing databases upgrade, and remove `_LOAN_OTPS`.
+
+**SHOULD 3: `/collect/agent` accepts any `hg_label`.** Accept only `agent` or `human`; otherwise 400.
+
+**SHOULD 4: Secure cookies in the cloud.** Set `secure=True` on `hg_sid` and `hg_auth` when `ENV=cloud` (Cloud Run is HTTPS).
+
+**SHOULD 5: `new_payee` is hard-coded `True`.** Compute it: `True` unless `to_account` matches one of the user's saved payees. The scorer uses this in D2.
+
+**Note for D2 (no action now):** `SessionMiddleware` does a synchronous DB upsert on every request, including `/api/events`, which will fire every 2 s per browser. In D2, skip `ensure_session` for `/api/events`, since the scorer updates `sessions.last_seen` itself.
