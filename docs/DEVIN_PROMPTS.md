@@ -3,7 +3,7 @@
 Run **one session at a time**, in order. Before each session:
 
 ```bash
-# in WSL, inside the repo folder
+# in PowerShell, inside C:\dev\agent-harness-detector
 git checkout main && git pull
 ```
 
@@ -14,7 +14,7 @@ git status                       # check nothing unexpected (no .env, no keys)
 git push -u origin <branch-name>
 ```
 
-Then open a pull request on GitHub and ask Claude to review it. Merge only after review, then start the next session from the updated `main`.
+Run these in PowerShell. Then open a pull request on GitHub and ask Claude to review it. Merge only after review, then start the next session from the updated `main`.
 
 | # | Task file | Branch | When |
 |---|---|---|---|
