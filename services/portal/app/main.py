@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import random
 import uuid
@@ -240,7 +239,7 @@ def transfer_confirm(request: Request,
                 return _render(request, "transfer.html", status=400,
                                banks=BANKS, account=account,
                                error="Insufficient balance for this transfer.")
-            tid = models.create_transfer(
+            models.create_transfer(
                 s, account["id"], sid, to_name, to_bank, to_account,
                 amount_cents, reference, "completed",
             )
@@ -265,7 +264,7 @@ def transfer_confirm(request: Request,
                                    "to your registered mobile number.")
 
         # block
-        tid = models.create_transfer(
+        models.create_transfer(
             s, account["id"], sid, to_name, to_bank, to_account,
             amount_cents, reference, "blocked",
         )
