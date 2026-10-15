@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: hg
+      POSTGRES_PASSWORD: hg
+      POSTGRES_DB: harnessguard
+    ports:
+      - "5432:5432"   # published so host-side pytest / scripts can connect
+    volumes:
+      - hg_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hg -d harnessguard"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  portal:
+    build:
+      context: .
+      dockerfile: services/portal/Dockerfile
+    environment:
+      ENV: ${ENV:-local}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hg:hg@db:5432/harnessguard}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      SCORER_URL: ${SCORER_URL:-http://scorer:8081}
+      EVENT_TRANSPORT: ${EVENT_TRANSPORT:-http}
+      ALLOW_DATA_COLLECTION: ${ALLOW_DATA_COLLECTION:-true}
+      IP_HASH_SALT: ${IP_HASH_SALT:-change-me}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+      FORCE_DECISION: ${FORCE_DECISION:-}
+      LLM_MODE: ${LLM_MODE:-mock}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      scorer:
+        condition: service_started
+
+  scorer:
+    build:
+      context: .
+      dockerfile: services/scorer/Dockerfile
+    environment:
+      ENV: ${ENV:-local}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hg:hg@db:5432/harnessguard}
+      ALLOW_BELOW: ${ALLOW_BELOW:-0.50}
+      BLOCK_ABOVE: ${BLOCK_ABOVE:-0.85}
+      MODEL_URI: ${MODEL_URI:-}
+      ANALYTICS_SINK: ${ANALYTICS_SINK:-jsonl}
+      LLM_MODE: ${LLM_MODE:-mock}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
+      PUBSUB_PUSH_TOKEN: ${PUBSUB_PUSH_TOKEN:-change-me}
+    ports:
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  console:
+    build:
+      context: .
+      dockerfile: services/console/Dockerfile
+    environment:
+      ENV: ${ENV:-local}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hg:hg@db:5432/harnessguard}
+      CONSOLE_PASSWORD: ${CONSOLE_PASSWORD:-change-me}
+      BENCHMARK_URI: ${BENCHMARK_URI:-./data/benchmark.json}
+    ports:
+      - "8082:8082"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  hg_db:

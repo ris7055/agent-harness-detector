@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Data collection · Bank Seroja{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-8">
+  <h1 class="text-xl font-semibold text-slate-900 mb-1">Help us test fraud detection</h1>
+  <p class="text-sm text-slate-500 mb-4">
+    You'll be given a short banking task to complete on this demo site.
+  </p>
+  <p class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-6">
+    We record mouse and keyboard <em>timing</em> and navigation only — never what you type,
+    never field contents or passwords.
+  </p>
+  <form method="post" action="/collect" class="space-y-4">
+    <input type="hidden" name="hg_last_seq" id="hg_last_seq" value="0">
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1" for="collector">Your name or nickname</label>
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2" id="collector" name="collector" required>
+    </div>
+    <button class="w-full rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2.5"
+            type="submit">Start task</button>
+  </form>
+</div>
+{% endblock %}
