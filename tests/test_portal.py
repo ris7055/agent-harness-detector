@@ -234,3 +234,130 @@ def test_api_events_accepts_valid_batch(client):
 
     bad = client.post("/api/events", json={"nope": True})
     assert bad.status_code == 422
+
+
+# ---------------------------------------------------------------- review fixes
+
+
+def test_transfer_rejects_non_positive_amounts(client, monkeypatch):
+    monkeypatch.setenv("FORCE_DECISION", "allow")
+    _login(client, username="ravi")
+    before = _balance(client, "ravi")
+    for bad in (-100000, 0):
+        r = client.post("/transfer/confirm", data=_confirm_form(amount_cents=bad))
+        assert r.status_code == 400
+    assert _balance(client, "ravi") == before
+
+
+def test_transfer_rejects_amount_over_balance_on_every_path(client, monkeypatch):
+    _login(client, username="meiling")
+    before = _balance(client, "meiling")
+    for forced in ("allow", "step_up", "block"):
+        monkeypatch.setenv("FORCE_DECISION", forced)
+        r = client.post("/transfer/confirm", data=_confirm_form(amount_cents=before + 1))
+        assert r.status_code == 400, forced
+    assert _balance(client, "meiling") == before
+
+
+def test_login_blocks_open_redirect(client):
+    for evil in ("//evil.example", "/\\evil.example", "https://evil.example"):
+        r = client.post(
+            "/login",
+            data={"username": "daniel", "password": "Seroja@2026", "next": evil},
+            follow_redirects=False,
+        )
+        assert r.headers["location"] == "/dashboard", evil
+    r = client.post(
+        "/login",
+        data={"username": "daniel", "password": "Seroja@2026", "next": "/transfer"},
+        follow_redirects=False,
+    )
+    assert r.headers["location"] == "/transfer"
+
+
+def test_each_collect_task_gets_its_own_session(client):
+    _login(client)
+    first = client.post("/collect", data={"collector": "raffa"})
+    sid1 = client.cookies.get("hg_sid")
+    second = client.post("/collect", data={"collector": "raffa"})
+    sid2 = client.cookies.get("hg_sid")
+    assert first.status_code == second.status_code == 200
+    assert sid1 and sid2 and sid1 != sid2
+    # starting a task logs the volunteer out so they follow the task card from login
+    assert client.get("/dashboard", follow_redirects=False).status_code == 303
+    with db.get_session() as s:
+        rows = s.execute(
+            text("SELECT session_id, task_id FROM session_labels"
+                 " WHERE session_id IN (:a, :b)"),
+            {"a": uuid.UUID(sid1), "b": uuid.UUID(sid2)},
+        ).all()
+    assert len(rows) == 2
+    assert rows[0]._mapping["task_id"] != rows[1]._mapping["task_id"]
+
+
+def test_collect_agent_rotates_session_and_validates_label(client):
+    client.get("/login")
+    old = client.cookies.get("hg_sid")
+    r = client.get("/collect/agent?hg_label=agent&hg_variant=llm_stealth&hg_task=t1",
+                   follow_redirects=False)
+    assert r.status_code == 303 and client.cookies.get("hg_sid") != old
+    bad = client.get("/collect/agent?hg_label=bot&hg_task=t2", follow_redirects=False)
+    assert bad.status_code == 400
+
+
+def test_loan_otp_persisted_in_db(client, monkeypatch):
+    monkeypatch.setenv("FORCE_DECISION", "step_up")
+    _login(client, username="aisyah")
+    r = client.post("/loan", data={
+        "amount": "8000", "tenure_months": "12",
+        "monthly_income": "5200", "employer": "Kenanga Labs",
+        "hg_last_seq": "0",
+    })
+    assert r.status_code == 200
+    with db.get_session() as s:
+        loan = s.execute(text(
+            "SELECT l.id, l.otp_code FROM loan_applications l JOIN users u ON u.id=l.user_id"
+            " WHERE u.username='aisyah' ORDER BY l.id DESC LIMIT 1")).first()._mapping
+    assert loan["otp_code"] and len(loan["otp_code"]) == 6
+    ok = client.post("/otp", data={"kind": "loan", "item_id": str(loan["id"]),
+                                   "otp": loan["otp_code"]})
+    assert ok.status_code == 200 and "submitted" in ok.text
+
+
+def test_new_payee_flag(client, monkeypatch):
+    from app import main as portal_main
+    seen = {}
+
+    def fake_decide(action, sid, last_seq, context):
+        seen.update(context)
+        return {"decision": "allow", "score": None, "band": None,
+                "model_version": "test", "latency_ms": 0}
+
+    monkeypatch.setattr(portal_main, "decide", fake_decide)
+    monkeypatch.delenv("FORCE_DECISION", raising=False)
+    _login(client)
+    with db.get_session() as s:
+        known = s.execute(text(
+            "SELECT p.name, p.bank, p.account_number FROM payees p JOIN users u"
+            " ON u.id=p.user_id WHERE u.username='daniel' LIMIT 1")).first()._mapping
+    form = _confirm_form(amount_cents=100)
+    form.update(to_name=known["name"], to_bank=known["bank"],
+                to_account=known["account_number"])
+    client.post("/transfer/confirm", data=form)
+    assert seen["new_payee"] is False
+    client.post("/transfer/confirm", data=_confirm_form(amount_cents=100))
+    assert seen["new_payee"] is True
+
+
+def test_cookies_secure_in_cloud(client, monkeypatch):
+    from harnessguard_core.config import get_settings
+    monkeypatch.setenv("ENV", "cloud")
+    if hasattr(get_settings, "cache_clear"):
+        get_settings.cache_clear()
+    try:
+        r = client.get("/login")
+        assert "secure" in r.headers.get("set-cookie", "").lower()
+    finally:
+        monkeypatch.setenv("ENV", "local")
+        if hasattr(get_settings, "cache_clear"):
+            get_settings.cache_clear()

@@ -67,3 +67,14 @@ Reviewed by Claude against SPEC/AGENTS. Overall solid: structure matches §3, al
 **SHOULD 5: `new_payee` is hard-coded `True`.** Compute it: `True` unless `to_account` matches one of the user's saved payees. The scorer uses this in D2.
 
 **Note for D2 (no action now):** `SessionMiddleware` does a synchronous DB upsert on every request, including `/api/events`, which will fire every 2 s per browser. In D2, skip `ensure_session` for `/api/events`, since the scorer updates `sessions.last_seen` itself.
+
+### Fixes (applied by Claude on this branch)
+- **MUST 1:** fixed. `/transfer/confirm` validates the account, `amount_cents > 0`, `amount_cents <= balance` and recipient fields **before** calling `decide()`, so every path (allow/step_up/block) is covered. The OTP completion path re-checks the amount. Tests: `test_transfer_rejects_non_positive_amounts`, `test_transfer_rejects_amount_over_balance_on_every_path`.
+- **MUST 2:** fixed. `POST /collect` and `GET /collect/agent` call `_start_fresh_session()`: a new `hg_sid` and `sessions` row, logged out (`hg_auth` cleared). The middleware writes the rotated cookie. Tests: `test_each_collect_task_gets_its_own_session`, `test_collect_agent_rotates_session_and_validates_label`.
+- **SHOULD 1:** fixed. `_safe_next()` rejects `//host`, `/\host` and absolute URLs. Test: `test_login_blocks_open_redirect`.
+- **SHOULD 2:** fixed. `loan_applications.otp_code` / `otp_attempts` are added with idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `schema.sql`, and `_LOAN_OTPS` is removed. Test: `test_loan_otp_persisted_in_db`.
+- **SHOULD 3:** fixed. `/collect/agent` returns 400 unless `hg_label` is `agent` or `human`.
+- **SHOULD 4:** fixed. `_cookie_kwargs()` sets `Secure` when `ENV=cloud`. Test: `test_cookies_secure_in_cloud`.
+- **SHOULD 5:** fixed. `new_payee` is computed against the user's saved payees (spaces ignored). Test: `test_new_payee_flag`.
+
+Result: 26 tests pass. Ready to merge.

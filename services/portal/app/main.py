@@ -32,10 +32,34 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 MAX_OTP_ATTEMPTS = 3
+VALID_LABELS = {"agent", "human"}
 
-# Pending OTPs for loan applications (process-local; transfers keep theirs in
-# the transfers table). Key: loan id -> {"code": str, "attempts": int}.
-_LOAN_OTPS: dict[int, dict] = {}
+
+def _cookie_kwargs() -> dict:
+    """httponly + lax everywhere; Secure when served over HTTPS on Cloud Run."""
+    return {"httponly": True, "samesite": "lax",
+            "secure": get_settings().env == "cloud"}
+
+
+def _safe_next(target: str | None) -> str:
+    """Only same-site relative paths; blocks //host and /\\host open redirects."""
+    if (not target or not target.startswith("/")
+            or target.startswith("//") or target.startswith("/\\")):
+        return "/dashboard"
+    return target
+
+
+def _start_fresh_session(request: Request) -> str:
+    """New hg_sid + sessions row, logged out. One data-collection task = one session.
+    The middleware writes the new hg_sid cookie from request.state after the handler."""
+    sid = str(uuid.uuid4())
+    ip = request.client.host if request.client else ""
+    with db.get_session() as s:
+        models.ensure_session(s, sid, request.headers.get("user-agent"), ip_hash(ip))
+        s.commit()
+    request.state.hg_sid = sid
+    request.state.user = None
+    return sid
 
 
 def _rm(cents: int | None) -> str:
@@ -94,7 +118,8 @@ class SessionMiddleware(BaseHTTPMiddleware):
         request.state.hg_sid = sid
         request.state.user = _current_user(request)
         response = await call_next(request)
-        response.set_cookie("hg_sid", sid, httponly=True, samesite="lax")
+        # A handler may have rotated the session (_start_fresh_session).
+        response.set_cookie("hg_sid", request.state.hg_sid, **_cookie_kwargs())
         return response
 
 
@@ -141,9 +166,8 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
             )
         models.set_session_user(s, request.state.hg_sid, user["id"])
         s.commit()
-    target = next if next.startswith("/") else "/dashboard"
-    resp = RedirectResponse(target, status_code=303)
-    resp.set_cookie("hg_auth", sign_value(str(user["id"])), httponly=True, samesite="lax")
+    resp = RedirectResponse(_safe_next(next), status_code=303)
+    resp.set_cookie("hg_auth", sign_value(str(user["id"])), **_cookie_kwargs())
     return resp
 
 
@@ -221,10 +245,29 @@ def transfer_confirm(request: Request,
 
     with db.get_session() as s:
         account = models.get_account_for_user(s, user["id"])
+        # amount_cents arrives from a hidden field: never trust it.
+        error = None
+        if not account:
+            error = "No account is linked to this user."
+        elif amount_cents <= 0:
+            error = "Enter a valid amount greater than RM 0."
+        elif amount_cents > account["balance_cents"]:
+            error = "Insufficient balance for this transfer."
+        elif to_bank not in BANKS or not to_name.strip() or not to_account.strip():
+            error = "Recipient details are incomplete."
+        if error:
+            return _render(request, "transfer.html", status=400, banks=BANKS,
+                           account=account, error=error)
+
+        acct_norm = to_account.replace(" ", "")
+        new_payee = not any(
+            (p["account_number"] or "").replace(" ", "") == acct_norm
+            for p in models.get_payees_for_user(s, user["id"])
+        )
         result = decide(
             "transfer", sid, hg_last_seq,
             {"amount_cents": amount_cents, "to_account": to_account,
-             "new_payee": True},
+             "new_payee": new_payee},
         )
         decision = result["decision"]
         decision_id = models.record_decision(
@@ -234,11 +277,6 @@ def transfer_confirm(request: Request,
         )
 
         if decision == "allow":
-            if not account or amount_cents > account["balance_cents"]:
-                s.rollback()
-                return _render(request, "transfer.html", status=400,
-                               banks=BANKS, account=account,
-                               error="Insufficient balance for this transfer.")
             models.create_transfer(
                 s, account["id"], sid, to_name, to_bank, to_account,
                 amount_cents, reference, "completed",
@@ -297,7 +335,8 @@ def otp_verify(request: Request, kind: str = Form(...), item_id: int = Form(...)
                                message="This transfer is no longer awaiting a code.")
 
             if otp.strip() == (transfer["otp_code"] or ""):
-                if transfer["amount_cents"] > account["balance_cents"]:
+                if (transfer["amount_cents"] <= 0
+                        or transfer["amount_cents"] > account["balance_cents"]):
                     s.execute(
                         text("UPDATE transfers SET status='failed_otp' WHERE id=:i"),
                         {"i": item_id},
@@ -337,45 +376,42 @@ def otp_verify(request: Request, kind: str = Form(...), item_id: int = Form(...)
                                  f"attempt(s) left.")
 
     if kind == "loan":
-        pending = _LOAN_OTPS.get(item_id)
         with db.get_session() as s:
-            loan = None
-            if pending:
-                loan = models.row_to_dict(s.execute(
-                    text("SELECT * FROM loan_applications WHERE id=:i"),
-                    {"i": item_id}).first())
-            if not pending or not loan or loan["user_id"] != user["id"] \
-                    or loan["status"] != "pending_otp":
+            loan = models.row_to_dict(s.execute(
+                text("SELECT * FROM loan_applications WHERE id=:i"),
+                {"i": item_id}).first())
+            if not loan or loan["user_id"] != user["id"] \
+                    or loan["status"] != "pending_otp" or not loan["otp_code"]:
                 return _render(request, "result.html", status=400, kind="blocked",
                                title="Application unavailable",
                                message="This application is no longer awaiting a code.")
-            if otp.strip() == pending["code"]:
+            if otp.strip() == loan["otp_code"]:
                 s.execute(
                     text("UPDATE loan_applications SET status='approved' WHERE id=:i"),
                     {"i": item_id},
                 )
                 s.commit()
-                _LOAN_OTPS.pop(item_id, None)
                 return _render(request, "result.html", kind="success",
                                title="Loan application submitted",
                                message="Your loan application was submitted for "
                                        "processing.")
-            pending["attempts"] += 1
-            if pending["attempts"] >= MAX_OTP_ATTEMPTS:
-                s.execute(
-                    text("UPDATE loan_applications SET status='failed_otp' WHERE id=:i"),
-                    {"i": item_id},
-                )
-                s.commit()
-                _LOAN_OTPS.pop(item_id, None)
+            attempts = (loan["otp_attempts"] or 0) + 1
+            status = "failed_otp" if attempts >= MAX_OTP_ATTEMPTS else "pending_otp"
+            s.execute(
+                text("UPDATE loan_applications SET otp_attempts=:n, status=:st"
+                     " WHERE id=:i"),
+                {"n": attempts, "st": status, "i": item_id},
+            )
+            s.commit()
+            if attempts >= MAX_OTP_ATTEMPTS:
                 return _render(request, "result.html", kind="blocked",
                                title="Application blocked",
                                message="Too many incorrect codes. The application "
                                        "was not submitted.")
             return _render(request, "otp.html", status=401, kind="loan",
-                           item_id=item_id, otp_code=pending["code"],
+                           item_id=item_id, otp_code=loan["otp_code"],
                            error=f"Incorrect code. "
-                                 f"{MAX_OTP_ATTEMPTS - pending['attempts']} attempt(s) left.")
+                                 f"{MAX_OTP_ATTEMPTS - attempts} attempt(s) left.")
 
     return _render(request, "result.html", status=400, kind="blocked",
                    title="Bad request", message="Unknown verification target.")
@@ -435,7 +471,11 @@ def loan_apply(request: Request,
                                    f"processing.")
         if decision == "step_up":
             otp = f"{random.randint(0, 999999):06d}"
-            _LOAN_OTPS[loan_id] = {"code": otp, "attempts": 0}
+            s.execute(
+                text("UPDATE loan_applications SET otp_code=:c, otp_attempts=0"
+                     " WHERE id=:i"),
+                {"c": otp, "i": loan_id},
+            )
             s.commit()
             return _render(request, "otp.html", kind="loan", item_id=loan_id,
                            otp_code=otp,
@@ -486,7 +526,7 @@ def collect_start(request: Request, collector: str = Form(...)):
     if not get_settings().allow_data_collection:
         return _render(request, "result.html", status=404, kind="blocked",
                        title="Not found", message="This page does not exist.")
-    sid = request.state.hg_sid
+    sid = _start_fresh_session(request)
     rng = random.Random()
     kind = rng.choice(["transfer_known", "transfer_new_payee", "loan_apply",
                        "browse_only"])
@@ -502,8 +542,10 @@ def collect_start(request: Request, collector: str = Form(...)):
         models.record_label(s, sid, "human", collector=collector.strip(),
                             task_id=task["task_id"])
         s.commit()
-    return _render(request, "collect_task.html", task=task,
+    resp = _render(request, "collect_task.html", task=task,
                    collector=collector.strip())
+    resp.delete_cookie("hg_auth")
+    return resp
 
 
 @app.get("/collect/agent")
@@ -512,12 +554,17 @@ def collect_agent(request: Request, hg_label: str = "agent",
     if not get_settings().allow_data_collection:
         return _render(request, "result.html", status=404, kind="blocked",
                        title="Not found", message="This page does not exist.")
+    if hg_label not in VALID_LABELS:
+        return JSONResponse({"error": "hg_label must be 'agent' or 'human'"},
+                            status_code=400)
+    sid = _start_fresh_session(request)
     with db.get_session() as s:
-        models.record_label(s, request.state.hg_sid, hg_label,
-                            variant=hg_variant, collector="redteam",
-                            task_id=hg_task)
+        models.record_label(s, sid, hg_label, variant=hg_variant,
+                            collector="redteam", task_id=hg_task)
         s.commit()
-    return RedirectResponse("/login", status_code=303)
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("hg_auth")
+    return resp
 
 
 # ----------------------------------------------------------------- misc

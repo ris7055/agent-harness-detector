@@ -114,3 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_
 CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session_id);
 CREATE INDEX IF NOT EXISTS idx_cases_status_created ON cases(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_transfers_account ON transfers(account_id, created_at);
+
+-- Upgrades for existing databases (idempotent)
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS otp_code text;
+ALTER TABLE loan_applications ADD COLUMN IF NOT EXISTS otp_attempts int NOT NULL DEFAULT 0;
