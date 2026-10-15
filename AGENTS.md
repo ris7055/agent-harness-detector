@@ -15,7 +15,8 @@ Read this file, then `docs/SPEC.md`, then your task file in `docs/tasks/` **befo
 10. **Keep docs current.** Update `README.md` (quickstart/status) and `.env.example` when you add commands or env vars.
 
 ## Git workflow
-- Work on the branch named in your task file (e.g. `feat/d1-portal`), created from the latest `main`.
+- **Work only in the local folder you were opened in.** It is already a clone of the repository, prepared by the developer. Do **not** clone the repository again, do not create another copy elsewhere, and do not use GitHub in any way: no `git clone`, `git fetch`, `git pull`, `git push`, `git remote` changes, `gh` CLI, or GitHub API/website access. All Git operations stay local.
+- Work on the branch named in your task file (e.g. `feat/d1-portal`), created from the local `main`.
 - Small, descriptive commits (`portal: add transfer review page`).
 - Do **not** push; the developer pushes from WSL. Do **not** rewrite history on `main`.
 - Finish with a short summary in `docs/REVIEW_NOTES.md`: what was built, how to run it, known gaps.

@@ -38,8 +38,10 @@ Before writing any code, read these files fully, in this order:
 3. <TASK FILE> (your task for this session, with acceptance criteria)
 Also read docs/REVIEW_NOTES.md for notes from earlier sessions.
 
+Work only inside this local folder. It is already a clone of the repository. Do NOT clone the repository again, and do NOT access GitHub in any way (no git clone/fetch/pull/push, no remote changes, no gh CLI, no GitHub website or API). All git operations stay local.
+
 Then:
-- Create and switch to the git branch <BRANCH> from the current main.
+- Create and switch to the git branch <BRANCH> from the local main.
 - Build only what <TASK FILE> asks for, following docs/SPEC.md exactly (stack, names, endpoints, env vars, schemas).
 - This machine is Windows with Docker Desktop. Run the stack with `docker compose up --build` and the tests with `pytest`; everything must work with LLM_MODE=mock and no Google Cloud credentials.
 - Never commit secrets, .env files or deploy/config.env. The repository is public.
@@ -56,6 +58,7 @@ Start by summarising your plan in 5-10 bullet points, then implement it.
 
 ```
 Read docs/REVIEW_NOTES.md, section "Review: <BRANCH>". Stay on branch <BRANCH>.
+Work only inside this local folder; do NOT clone the repository or access GitHub (no fetch/pull/push, no gh CLI). All git operations stay local.
 Fix every item marked MUST, and SHOULD items if they are quick. Keep following AGENTS.md and docs/SPEC.md.
 Run `pytest` and `docker compose up --build` to confirm nothing broke.
 Commit with messages starting "review:". Then reply under each item in REVIEW_NOTES.md with "Fixed in <commit>" or why not.
