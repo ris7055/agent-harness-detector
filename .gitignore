@@ -1,0 +1,35 @@
+# Secrets and local config (this repo is PUBLIC)
+.env
+.env.*
+!.env.example
+deploy/config.env
+*.pem
+*.key
+*service-account*.json
+*credentials*.json
+gcp-key*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data and model outputs (local only)
+data/*
+!data/.gitkeep
+
+# Playwright / browsers
+playwright-report/
+test-results/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
