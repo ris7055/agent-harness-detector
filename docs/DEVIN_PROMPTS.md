@@ -4,7 +4,8 @@ Run **one session at a time**, in order. Before each session:
 
 ```bash
 # in PowerShell, inside C:\dev\agent-harness-detector
-git checkout main && git pull
+git checkout main
+git pull
 ```
 
 After each session:
