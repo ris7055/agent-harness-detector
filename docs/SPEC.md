@@ -248,6 +248,7 @@ Rules in the prompt: never invent signals not in the input; cite numbers; be con
 Protected by a single shared password (`CONSOLE_PASSWORD`, cookie session). Pages:
 - `/` **Live sessions**: table auto-refreshing every 3 s (fetch JSON endpoint) — session id (short), user, started, pages, current score with colour band, last action, label if known (data-collection sessions only, shown as a small grey tag).
 - `/cases` list (open first) and `/cases/{id}` **case detail**: decision, score gauge, Gemini summary + evidence + next steps, top-reason bar chart (Chart.js), fingerprint table, **mouse-path replay** (canvas: draw the mousemove trajectory per page over a page-sized box, clicks as dots, animated playback button), event timeline. Buttons: "Confirm fraud" / "False positive" → updates `cases.status` (analyst feedback).
+- `/log` **Detection log**: chronological audit trail of every decision (newest first, auto-refresh 3 s): time, session (link), user, action (transfer/loan), amount, score, band, decision, model version, latency ms, top 3 reasons. Filters: decision, band, time range, user. "Export CSV" button. Each row expands to the event-level timeline. Data from `decisions` joined with `sessions`/`cases`.
 - `/benchmark`: renders `benchmark.json` (from `BENCHMARK_URI`) — metrics table per model, per-variant detection rates, ROC curve, early-detection curve, latency.
 - JSON endpoints under `/api/...` for the auto-refresh.
 
