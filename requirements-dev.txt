@@ -1,0 +1,8 @@
+# Local dev/test dependencies (Windows dev machine, PowerShell).
+# Usage:  pip install -r requirements-dev.txt
+-e ./core
+-r services/portal/requirements.txt
+-r services/scorer/requirements.txt
+-r services/console/requirements.txt
+pytest>=8.0
+testcontainers>=4.7

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Bank Seroja{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
+  {% if kind == "success" %}
+  <div class="mx-auto w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-2xl mb-4">&#10003;</div>
+  {% else %}
+  <div class="mx-auto w-12 h-12 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-2xl mb-4">&#33;</div>
+  {% endif %}
+  <h1 class="text-xl font-semibold text-slate-900 mb-2">{{ title }}</h1>
+  <p class="text-sm text-slate-600 mb-2">{{ message }}</p>
+  {% if reference %}<p class="text-xs text-slate-400 mb-2">Reference: {{ reference }}</p>{% endif %}
+  {% if case_ref %}<p class="text-sm text-slate-500 mb-2">Reference <strong class="font-mono">{{ case_ref }}</strong></p>{% endif %}
+  <a href="/dashboard" class="inline-block mt-4 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-medium px-5 py-2.5 text-sm">Back to dashboard</a>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Your task · Bank Seroja{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-8">
+  <p class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Task card · {{ task.task_id }}</p>
+  <h1 class="text-xl font-semibold text-slate-900 mb-4">Thanks, {{ collector }} — your task</h1>
+  <div class="rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm px-4 py-3 mb-6">
+    {{ task.text }}
+  </div>
+  <p class="text-xs text-slate-400 mb-6">Complete the task at a natural pace, then close the tab. Thank you!</p>
+  <a href="/login" class="block text-center rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2.5">Begin — open login</a>
+</div>
+{% endblock %}
