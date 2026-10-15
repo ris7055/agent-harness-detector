@@ -16,7 +16,34 @@ Fraudsters now use **AI agent harnesses**, LLMs driving real browsers, to automa
 - [`docs/DEVIN_PROMPTS.md`](docs/DEVIN_PROMPTS.md): session prompts and Git workflow
 
 ## Quickstart (local)
-_Filled in once D1 lands._
+
+Requires Docker Desktop and Python 3.11 (for tests).
+
+```powershell
+copy .env.example .env          # optional — compose has safe defaults
+docker compose up --build       # db + portal:8080 + scorer:8081 + console:8082
+```
+
+- **Portal:** http://localhost:8080 — sign in as `daniel` / `Seroja@2026`
+  (also `aisyah`, `meiling`, `ravi`, `demo` — same password, demo only)
+- **Scorer:** http://localhost:8081 (`/healthz` stub for now)
+- **Console:** http://localhost:8082 (`/healthz` stub for now)
+- **Data collection mode:** http://localhost:8080/collect (set `ALLOW_DATA_COLLECTION=false` to disable)
+
+Force a decision path without the scorer (demo/testing only):
+
+```powershell
+$env:FORCE_DECISION = "step_up"   # allow | step_up | block
+docker compose up -d portal
+```
+
+Tests (starts its own throwaway Postgres container; or point
+`HG_TEST_DATABASE_URL` at a disposable database to skip testcontainers):
+
+```powershell
+pip install -r requirements-dev.txt
+pytest
+```
 
 ## Privacy
 The behaviour collector records timing and movement only. It never records key values, field contents or passwords. IP addresses are stored as salted hashes. The bank in the demo ("Bank Seroja") is fictional.

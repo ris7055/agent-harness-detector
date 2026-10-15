@@ -17,9 +17,9 @@
 6. `.gitignore` is already present — keep it.
 
 ## Acceptance criteria
-- [ ] `docker compose up --build` → portal on http://localhost:8080; login as `daniel` / `Seroja@2026` works; dashboard shows balance and 5 transactions.
-- [ ] Transfer flow works end-to-end for all three `FORCE_DECISION` values; balances update only on success.
-- [ ] `/collect` assigns a task card, writes a `session_labels` row (label `human`), and continues into `/login` in the same session.
-- [ ] `/collect/agent?hg_label=agent&hg_variant=script_fill&hg_task=<id>` writes the label and redirects to `/login`; returns 404 when `ALLOW_DATA_COLLECTION=false`.
-- [ ] `pytest` passes: schema init + seed idempotent (run twice), login, transfer happy path, collect labelling.
-- [ ] README quickstart updated.
+- [x] `docker compose up --build` → portal on http://localhost:8080; login as `daniel` / `Seroja@2026` works; dashboard shows balance and 5 transactions.
+- [x] Transfer flow works end-to-end for all three `FORCE_DECISION` values; balances update only on success.
+- [x] `/collect` assigns a task card, writes a `session_labels` row (label `human`), and continues into `/login` in the same session.
+- [x] `/collect/agent?hg_label=agent&hg_variant=script_fill&hg_task=<id>` writes the label and redirects to `/login`; returns 404 when `ALLOW_DATA_COLLECTION=false`.
+- [x] `pytest` passes: schema init + seed idempotent (run twice), login, transfer happy path, collect labelling.
+- [x] README quickstart updated.
