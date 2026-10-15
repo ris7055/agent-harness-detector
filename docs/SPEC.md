@@ -265,7 +265,8 @@ transfers(id serial pk, account_id int fk, session_id uuid, to_name text, to_ban
           amount_cents bigint, reference text, status text /* completed|pending_otp|blocked|failed_otp */,
           otp_code text, otp_attempts int default 0, created_at timestamptz)
 loan_applications(id serial pk, user_id int fk, session_id uuid, amount_cents bigint, tenure_months int,
-          monthly_income_cents bigint, employer text, status text, created_at timestamptz)
+          monthly_income_cents bigint, employer text, status text, otp_code text,
+          otp_attempts int default 0, created_at timestamptz)
 sessions(id uuid pk, user_id int null, started_at timestamptz, last_seen timestamptz, user_agent text,
          ip_hash text, risk_score real, risk_band text, model_version text, event_count int default 0)
 session_events(session_id uuid, seq int, t_ms real, wall_ms bigint, type text, page text, data jsonb,
