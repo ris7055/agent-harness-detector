@@ -63,12 +63,14 @@ def test_real_xgboost_model_loads_and_scores(tmp_path):
         pytest.skip(f"xgboost unavailable: {exc}")
     import numpy as np
 
-    rng = np.random.Random(0)
+    rng = np.random.RandomState(0)
     X = rng.rand(40, len(FEATURE_NAMES))
     y = np.array([0, 1] * 20)
-    clf = xgb.XGBClassifier(n_estimators=5, max_depth=2)
-    clf.fit(X, y)
-    clf.get_booster().save_model(str(tmp_path / "model.json"))
+    # native API: the scorer image ships xgboost without scikit-learn
+    booster = xgb.train({"objective": "binary:logistic", "max_depth": 2},
+                        xgb.DMatrix(X, label=y, feature_names=FEATURE_NAMES),
+                        num_boost_round=5)
+    booster.save_model(str(tmp_path / "model.json"))
     (tmp_path / "model_meta.json").write_text(json.dumps({
         "version": "test-v1", "feature_names": FEATURE_NAMES,
         "trained_at": "2026-10-16T00:00:00Z", "metrics": {},
@@ -79,3 +81,25 @@ def test_real_xgboost_model_loads_and_scores(tmp_path):
     assert s.mode == "xgboost" and s.version == "test-v1"
     score, reasons = s.score({n: 0.5 for n in FEATURE_NAMES})
     assert 0.0 <= score <= 1.0 and len(reasons) <= 5
+
+
+def test_unnamed_model_also_scores(tmp_path):
+    """Boosters trained without feature names must keep working too."""
+    try:
+        import xgboost as xgb
+    except Exception as exc:
+        pytest.skip(f"xgboost unavailable: {exc}")
+    import numpy as np
+
+    rng = np.random.RandomState(1)
+    booster = xgb.train({"objective": "binary:logistic", "max_depth": 2},
+                        xgb.DMatrix(rng.rand(20, len(FEATURE_NAMES)),
+                                    label=np.array([0, 1] * 10)),
+                        num_boost_round=3)
+    booster.save_model(str(tmp_path / "model.json"))
+    (tmp_path / "model_meta.json").write_text(json.dumps({
+        "version": "unnamed-v1", "feature_names": FEATURE_NAMES}))
+    s = model_mod.Scorer()
+    s.load(str(tmp_path))
+    score, _ = s.score({n: 0.2 for n in FEATURE_NAMES})
+    assert s.mode == "xgboost" and 0.0 <= score <= 1.0

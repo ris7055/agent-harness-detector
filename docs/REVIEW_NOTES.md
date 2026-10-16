@@ -152,3 +152,23 @@ Tests: `pytest` — 60 passed, 1 skipped (see deviations).
 - `EVENT_TRANSPORT=pubsub` is covered by mocked-publisher tests only.
 - Click events carry `target_rect` so `click_center_offset_*` is computed;
   events without element bounds (e.g. document-level clicks) contribute `-1`.
+
+## Review: feat/d2-scorer
+
+Reviewed by Claude, including a real-browser end-to-end run (Playwright Chromium against portal and scorer). The feature engineering, rules baseline, scorer API and privacy handling are solid. Four bugs were found; all are fixed on this branch.
+
+**MUST 1 (fixed): `collector.js` was never served.** `base.html` loads `/static/collector.js`, but the portal mounted `services/portal/app/static/` while the file lives in `services/portal/static/`. The mount was also conditional, so it failed silently: **real browsers sent zero events** and every decision was scored on an empty session (score 0, always `allow`). The D2 live check posted synthetic batches with curl, so it never exercised the browser path. Fix: mount `BASE_DIR.parent / "static"` unconditionally. Test: `test_collector_js_is_served`.
+
+**MUST 2 (fixed): cross-session event injection.** `/api/events` accepted any `session_id` in the batch, so a client could push events into another user's session (or invent sessions). Fix: drop batches whose `session_id` differs from the `hg_sid` cookie, still answering 204 so the collector does not retry forever. Test: `test_api_events_rejects_other_sessions`.
+
+**MUST 3 (fixed): model scoring crashed with named features.** `Scorer.score` built an unnamed `DMatrix`. A booster trained from a DataFrame or named DMatrix (what D6 will produce) raises on unnamed input, so `/v1/decide` would return 500 for every request and the portal would fail open to OTP for everyone. Fix: pass `feature_names`, and fall back to rules for that request if the model errors. The existing round-trip test never ran (it was skipped on Windows and also called the non-existent `np.random.Random`). It is now fixed to use the native xgboost API (no scikit-learn in the scorer image), and `test_unnamed_model_also_scores` was added.
+
+**MUST 4 (fixed): collector sequence numbers.**
+- `hg_seq` lived in `sessionStorage` and was not keyed by session, so a second tab restarted at seq 1 and the server's `ON CONFLICT (session_id, seq) DO NOTHING` silently discarded that tab's events. It is now `localStorage["hg_seq:<session>"]`, shared by all tabs of the session and re-read on every increment.
+- On submit, `hg_last_seq` was set from *acknowledged* events only, and the flush was skipped if a periodic batch was in flight. The decision could therefore be taken without the latest keystrokes and the submit event. Now the highest pushed seq is stamped and a forced flush is sent; the scorer already waits up to 1.5 s for it. Verified in the browser run: every decision covers all events including the submit.
+
+**Notes (no action):**
+- A Playwright session with humanised mouse and typing still scores about 0.75 (step-up) because `navigator.webdriver` is true. That is correct behaviour; the human path must be validated by real people in normal browsers (the `/collect` data collection).
+- `decide()` is called while the portal holds a DB session (up to 2 s). This is acceptable at prototype scale.
+
+Result: 64 tests pass. Ready to merge.

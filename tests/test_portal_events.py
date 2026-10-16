@@ -29,8 +29,14 @@ def _batch(sid):
     }
 
 
+def _own(client, sid):
+    """Make the test client's hg_sid cookie match the batch session."""
+    client.cookies.set("hg_sid", str(sid))
+    return sid
+
+
 def test_api_events_reach_scorer_over_http(stack):
-    sid = uuid.uuid4()
+    sid = _own(stack, uuid.uuid4())
     batch = _batch(sid)
     r = stack.post("/api/events", json=batch)
     assert r.status_code == 204
@@ -59,7 +65,7 @@ def test_api_events_pubsub_publishes(client, monkeypatch):
     monkeypatch.setenv("GCP_PROJECT", "demo-project")
     monkeypatch.setenv("PUBSUB_TOPIC", "session-events")
 
-    batch = _batch(uuid.uuid4())
+    batch = _batch(_own(client, uuid.uuid4()))
     r = client.post("/api/events", json=batch)
     assert r.status_code == 204
 
@@ -73,7 +79,8 @@ def test_api_events_pubsub_publishes(client, monkeypatch):
 def test_api_events_survives_scorer_outage(client, monkeypatch):
     # scorer down -> still 204; the page must never break on telemetry
     monkeypatch.setenv("SCORER_URL", "http://127.0.0.1:9")
-    assert client.post("/api/events", json=_batch(uuid.uuid4())).status_code == 204
+    sid = _own(client, uuid.uuid4())
+    assert client.post("/api/events", json=_batch(sid)).status_code == 204
 
 
 def test_api_events_middleware_skips_ensure_session(client):
@@ -91,3 +98,26 @@ def test_api_events_middleware_skips_ensure_session(client):
         assert s.execute(
             text("SELECT 1 FROM sessions WHERE id=:i"), {"i": cookie_sid}
         ).first() is None
+
+
+def test_api_events_rejects_other_sessions(stack):
+    """Review D2 MUST 1: a browser cannot inject events into another session."""
+    victim = uuid.uuid4()
+    _own(stack, uuid.uuid4())                 # attacker's own cookie
+    r = stack.post("/api/events", json=_batch(victim))
+    assert r.status_code == 204              # silent drop, no retry loop
+    with db.get_session() as s:
+        n = s.execute(
+            text("SELECT count(*) FROM session_events WHERE session_id=:i"),
+            {"i": victim},
+        ).scalar_one()
+    assert n == 0
+
+
+def test_collector_js_is_served(client):
+    """Review D2 MUST: base.html loads /static/collector.js, so it must exist."""
+    r = client.get("/static/collector.js")
+    assert r.status_code == 200
+    assert "hg-session" in r.text and "/api/events" in r.text
+    page = client.get("/login").text
+    assert 'src="/static/collector.js"' in page

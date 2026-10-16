@@ -113,12 +113,17 @@ class Scorer:
             return score_rules(features)
         import xgboost as xgb
 
-        # Positional input: meta.feature_names was validated against
-        # FEATURE_NAMES at load time, so column order is the contract.
+        # meta.feature_names was validated against FEATURE_NAMES at load
+        # time. Pass the names explicitly: a booster trained from a named
+        # DMatrix/DataFrame refuses unnamed input.
         row = [[features.get(n, -1.0) for n in self._feature_names]]
-        dmat = xgb.DMatrix(row)
-        prob = float(self._booster.predict(dmat)[0])
-        contribs = self._booster.predict(dmat, pred_contribs=True)[0]
+        try:
+            dmat = xgb.DMatrix(row, feature_names=self._feature_names)
+            prob = float(self._booster.predict(dmat)[0])
+            contribs = self._booster.predict(dmat, pred_contribs=True)[0]
+        except Exception:  # noqa: BLE001 - a bad model must not take decisions down
+            log.exception("model scoring failed; using rules for this request")
+            return score_rules(features)
         reasons = sorted(
             (
                 {"feature": n, "value": row[0][i], "contribution": round(float(contribs[i]), 4)}

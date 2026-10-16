@@ -135,9 +135,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bank Seroja (HarnessGuard demo portal)", lifespan=lifespan)
 app.add_middleware(SessionMiddleware)
-_static = BASE_DIR / "static"
-if _static.exists():
-    app.mount("/static", StaticFiles(directory=str(_static)), name="static")
+# services/portal/static (next to app/, not inside it). Mounted
+# unconditionally: a missing folder must fail loudly at startup, because
+# without collector.js the detector silently receives no telemetry.
+STATIC_DIR = BASE_DIR.parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 def _login_redirect() -> RedirectResponse:
@@ -529,6 +531,16 @@ async def api_events(request: Request, batch: EventBatch):
     """Validate telemetry batches and forward per EVENT_TRANSPORT (SPEC 5.3).
     Always answers 204 fast; a scorer/publish failure must never break a page."""
     settings = get_settings()
+    # A browser may only report telemetry for its own session: otherwise a
+    # client could inject events into (and poison the score of) another
+    # session. Answer 204 anyway so the collector does not retry forever.
+    try:
+        cookie_sid = uuid.UUID(request.cookies.get("hg_sid") or "")
+    except ValueError:
+        cookie_sid = None
+    if cookie_sid is None or cookie_sid != batch.session_id:
+        log.info("dropping event batch: session_id does not match hg_sid cookie")
+        return Response(status_code=204)
     try:
         if settings.event_transport == "pubsub":
             publisher = _get_publisher()

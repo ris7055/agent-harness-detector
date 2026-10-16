@@ -21,14 +21,24 @@
   var MOVE_MS = 50;           // mousemove throttle
   var SCROLL_MS = 100;        // scroll throttle
 
-  // Per-session monotonic counter survives navigation within the tab.
-  var seq = parseInt(sessionStorage.getItem("hg_seq") || "0", 10) || 0;
+  // Per-session monotonic counter. Keyed by session id and kept in
+  // localStorage so it survives navigation AND is shared by every tab of the
+  // same session (the server drops duplicate (session_id, seq) pairs, so a
+  // counter that restarted in a new tab would silently lose events).
+  var SEQ_KEY = "hg_seq:" + SESSION_ID;
+  var store = (function () {
+    try { localStorage.setItem("hg_t", "1"); localStorage.removeItem("hg_t"); return localStorage; }
+    catch (e) { return sessionStorage; }
+  })();
+  var seq = 0;
   var buf = [];
   var lastSentSeq = 0;
 
   function nextSeq() {
-    seq += 1;
-    try { sessionStorage.setItem("hg_seq", String(seq)); } catch (e) {}
+    var stored = 0;
+    try { stored = parseInt(store.getItem(SEQ_KEY) || "0", 10) || 0; } catch (e) {}
+    seq = Math.max(seq, stored) + 1;
+    try { store.setItem(SEQ_KEY, String(seq)); } catch (e) {}
     return seq;
   }
 
@@ -59,9 +69,10 @@
   }
 
   // Periodic flush; keepalive lets it complete during navigation too.
+  // force=true (form submit) sends even while a periodic batch is in flight.
   var inFlight = false;
-  function flush() {
-    if (inFlight || !buf.length) return Promise.resolve();
+  function flush(force) {
+    if (!buf.length || (inFlight && !force)) return Promise.resolve();
     var events = buf.splice(0, buf.length);
     var body = JSON.stringify({
       session_id: SESSION_ID,
@@ -235,17 +246,22 @@
       if (!form || form.__hgFlushed) return;
       e.preventDefault();
       push("submit", { form_id: fieldId(form) });
+      // The decision must cover every event up to and including this submit,
+      // including any batch that is still in flight: stamp the highest seq
+      // pushed so far (the scorer waits up to 1.5 s for it to arrive).
+      var target = seq;
+      var inputs = form.querySelectorAll('input[name="hg_last_seq"]');
+      for (var i = 0; i < inputs.length; i++) inputs[i].value = String(target);
       var done = false;
       function finish() {
         if (done) return;
         done = true;
-        stampLastSeq();
         form.__hgFlushed = true;
         form.submit(); // native submit: skips re-firing the submit event
       }
       var timer = setTimeout(finish, SUBMIT_FLUSH_MS);
-      flush().then(function () { clearTimeout(timer); finish(); })
-             .catch(function () { clearTimeout(timer); finish(); });
+      flush(true).then(function () { clearTimeout(timer); finish(); })
+                 .catch(function () { clearTimeout(timer); finish(); });
     }, true);
 
     setInterval(flush, FLUSH_MS);
