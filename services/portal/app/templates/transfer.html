@@ -7,7 +7,7 @@
   {% if error %}
   <div class="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{{ error }}</div>
   {% endif %}
-  <form method="post" action="/transfer" class="space-y-4">
+  <form method="post" action="/transfer" id="transfer-form" class="space-y-4">
     <div>
       <label class="block text-sm font-medium text-slate-700 mb-1" for="to_name">Recipient name</label>
       <input class="w-full rounded-lg border border-slate-300 px-3 py-2" id="to_name" name="to_name"
