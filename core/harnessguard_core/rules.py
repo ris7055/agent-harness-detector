@@ -17,8 +17,8 @@ MISSING = -1.0
 # when scale=True. Conditions never fire on the -1 "missing" value.
 _RULES: list[tuple[str, str, float, bool]] = [
     # feature            condition                 weight  scale_by_value
-    ("fp_webdriver", "truthy", 0.60, False),
-    ("fp_headless_ua", "truthy", 0.50, False),
+    ("fp_webdriver", "truthy", 0.80, False),
+    ("fp_headless_ua", "truthy", 0.60, False),
     ("click_no_premove_ratio", ">=0.8", 0.40, True),
     ("click_center_offset_mean", "<0.1", 0.30, False),
     ("input_programmatic_ratio", ">=0.5", 0.50, True),

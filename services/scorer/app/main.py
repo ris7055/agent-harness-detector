@@ -121,7 +121,8 @@ def _maybe_rescore(session_id: uuid.UUID) -> None:
     with _last_scored_lock:
         if len(_last_scored) > 100_000:
             _last_scored.clear()
-        if now - _last_scored.get(session_id, 0.0) < _RESCORE_DEBOUNCE_S:
+        last = _last_scored.get(session_id)
+        if last is not None and now - last < _RESCORE_DEBOUNCE_S:
             return
         _last_scored[session_id] = now
     _rescore(session_id)
