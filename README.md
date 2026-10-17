@@ -14,6 +14,7 @@ Fraudsters now use **AI agent harnesses**, LLMs driving real browsers, to automa
 - [`AGENTS.md`](AGENTS.md): rules for AI coding agents working on this repo
 - [`docs/tasks/`](docs/tasks/): build tasks D1–D6 with acceptance criteria
 - [`docs/DEVIN_PROMPTS.md`](docs/DEVIN_PROMPTS.md): session prompts and Git workflow
+- [`docs/DEPLOY.md`](docs/DEPLOY.md): deploy to Google Cloud from Cloud Shell (`deploy/`)
 
 ## Quickstart (local)
 

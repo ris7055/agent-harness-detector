@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +14,13 @@ class Settings(BaseSettings):
     env: str = "local"  # local|cloud
 
     database_url: str = "postgresql+psycopg://hg:hg@db:5432/harnessguard"
+
+    # Cloud SQL (Cloud Run): when these are set and database_url is left at its
+    # default, the Postgres unix-socket URL is built from them (see below).
+    db_user: str = ""
+    db_pass: str = ""
+    db_name: str = ""
+    instance_connection_name: str = ""  # project:region:instance
     session_secret: str = "change-me"
     console_password: str = "change-me"
 
@@ -40,6 +50,23 @@ class Settings(BaseSettings):
 
     # Demo/testing override: allow|step_up|block (empty = use scorer). D1 stub only.
     force_decision: str = ""
+
+    _DEFAULT_DB_URL = "postgresql+psycopg://hg:hg@db:5432/harnessguard"
+
+    @model_validator(mode="after")
+    def _build_cloudsql_url(self) -> "Settings":
+        """On Cloud Run, build the Cloud SQL unix-socket URL from the DB_* vars
+        when DATABASE_URL was not set explicitly. The password stays in Secret
+        Manager (passed as DB_PASS); it is never baked into an image or a URL
+        in the deploy command."""
+        if (self.instance_connection_name and self.db_user and self.db_name
+                and self.database_url == self._DEFAULT_DB_URL):
+            socket = f"/cloudsql/{self.instance_connection_name}"
+            self.database_url = (
+                f"postgresql+psycopg://{quote(self.db_user)}:"
+                f"{quote(self.db_pass)}@/{self.db_name}?host={socket}"
+            )
+        return self
 
 
 def get_settings() -> Settings:

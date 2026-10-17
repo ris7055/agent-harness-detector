@@ -1,0 +1,32 @@
+# Builds the three HarnessGuard images from the repo root (so each Dockerfile
+# can `pip install ./core`) and pushes them to Artifact Registry.
+# Invoked by deploy/deploy.sh with --substitutions (see that script).
+substitutions:
+  _AR_REPO: harnessguard
+  _REGION: asia-southeast1
+  _TAG: latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build-portal
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "services/portal/Dockerfile",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/portal:${_TAG}",
+           "."]
+  - id: build-scorer
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "services/scorer/Dockerfile",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/scorer:${_TAG}",
+           "."]
+  - id: build-console
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "services/console/Dockerfile",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/console:${_TAG}",
+           "."]
+
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/portal:${_TAG}"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/scorer:${_TAG}"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/console:${_TAG}"
