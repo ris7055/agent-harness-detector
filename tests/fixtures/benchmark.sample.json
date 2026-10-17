@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-10-17T08:30:00Z",
+  "dataset": {
+    "sessions": 42,
+    "human": 18,
+    "agent": 24,
+    "by_variant": {"script_fill": 8, "script_type": 6, "llm_headless": 6, "llm_headed": 4},
+    "train": 29,
+    "test": 13
+  },
+  "models": [
+    {
+      "name": "rules_baseline",
+      "precision": 0.82, "recall": 0.75, "f1": 0.783, "roc_auc": 0.88, "human_fpr": 0.11,
+      "detection_by_variant": {"script_fill": 1.0, "script_type": 0.83, "llm_headless": 0.67, "llm_headed": 0.5},
+      "roc": {"fpr": [0.0, 0.05, 0.11, 0.22, 0.39, 0.56, 1.0], "tpr": [0.0, 0.33, 0.58, 0.75, 0.88, 0.96, 1.0]}
+    },
+    {
+      "name": "xgb_fingerprint",
+      "precision": 0.9, "recall": 0.79, "f1": 0.842, "roc_auc": 0.93, "human_fpr": 0.06,
+      "detection_by_variant": {"script_fill": 1.0, "script_type": 1.0, "llm_headless": 0.83, "llm_headed": 0.25},
+      "roc": {"fpr": [0.0, 0.03, 0.06, 0.17, 0.28, 0.44, 1.0], "tpr": [0.0, 0.42, 0.67, 0.79, 0.9, 0.96, 1.0]}
+    },
+    {
+      "name": "xgb_behaviour",
+      "precision": 0.88, "recall": 0.83, "f1": 0.855, "roc_auc": 0.94, "human_fpr": 0.06,
+      "detection_by_variant": {"script_fill": 1.0, "script_type": 1.0, "llm_headless": 0.83, "llm_headed": 0.5},
+      "roc": {"fpr": [0.0, 0.03, 0.06, 0.11, 0.22, 0.39, 1.0], "tpr": [0.0, 0.5, 0.71, 0.83, 0.92, 0.96, 1.0]}
+    },
+    {
+      "name": "xgb_full",
+      "precision": 0.94, "recall": 0.92, "f1": 0.929, "roc_auc": 0.97, "human_fpr": 0.0,
+      "detection_by_variant": {"script_fill": 1.0, "script_type": 1.0, "llm_headless": 1.0, "llm_headed": 0.75},
+      "roc": {"fpr": [0.0, 0.0, 0.06, 0.11, 0.17, 0.28, 1.0], "tpr": [0.0, 0.58, 0.83, 0.92, 0.96, 1.0, 1.0]}
+    },
+    {
+      "name": "bqml_boosted_tree",
+      "precision": 0.93, "recall": 0.88, "f1": 0.9, "roc_auc": 0.96, "human_fpr": 0.06,
+      "detection_by_variant": {"script_fill": 1.0, "script_type": 1.0, "llm_headless": 0.83, "llm_headed": 0.75},
+      "roc": {"fpr": [0.0, 0.03, 0.06, 0.11, 0.22, 0.33, 1.0], "tpr": [0.0, 0.5, 0.75, 0.88, 0.92, 1.0, 1.0]}
+    }
+  ],
+  "held_out_variant": {"variant": "llm_headless", "xgb_full_recall": 0.83, "xgb_fingerprint_recall": 0.67},
+  "early_detection": {
+    "seconds": [5, 10, 20, 30],
+    "xgb_full_f1": [0.71, 0.82, 0.9, 0.929],
+    "rules_baseline_f1": [0.62, 0.7, 0.76, 0.783]
+  },
+  "latency_ms": {"p50": 4, "p95": 21, "n": 37},
+  "top_features": [
+    {"feature": "fp_webdriver", "importance": 0.31},
+    {"feature": "click_no_premove_ratio", "importance": 0.19},
+    {"feature": "input_programmatic_ratio", "importance": 0.14},
+    {"feature": "key_interval_cv", "importance": 0.11},
+    {"feature": "mouse_straightness_mean", "importance": 0.08},
+    {"feature": "click_center_offset_mean", "importance": 0.06},
+    {"feature": "nav_direct_to_sensitive", "importance": 0.04}
+  ]
+}
