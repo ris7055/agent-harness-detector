@@ -25,6 +25,8 @@ import json
 import logging
 from typing import Any
 
+import time
+
 from sqlalchemy import text
 
 from harnessguard_core import db
@@ -117,7 +119,18 @@ def _load_context(session_id, action: str) -> dict[str, Any]:
 
     The ``decisions`` table intentionally stores no request context, so the
     explainer reconstructs it from the session's latest transfer / loan.
+    The portal writes that row right after /v1/decide responds, so this
+    (background) path polls briefly for it to land.
     """
+    for _ in range(4):
+        ctx = _load_context_once(session_id, action)
+        if ctx:
+            return ctx
+        time.sleep(0.2)
+    return {}
+
+
+def _load_context_once(session_id, action: str) -> dict[str, Any]:
     ctx: dict[str, Any] = {}
     with db.get_session() as s:
         if action == "transfer":
