@@ -69,16 +69,42 @@ gcloud run services logs read portal --region <REGION> --limit 50
 gcloud run services logs read scorer --region <REGION> --limit 50
 ```
 
-## 6. Save credit
+## 6. Save credit **while still building**
 
 Cloud Run scales to zero on its own. **Cloud SQL does not** — stop it when you are
-not working:
+not working _during development_:
 
 ```bash
 bash deploy/teardown.sh            # stop Cloud SQL
 bash deploy/teardown.sh --start    # resume before the next session
 bash deploy/teardown.sh --delete   # remove everything (asks for confirmation)
 ```
+
+## 7. Always-on (24/7) mode — for judging
+
+The submission's **Final Product Link** must be live for judges to open at any
+time, through to the Dec 4 finale. Once you submit, treat the deployment as
+always-on:
+
+- **Do NOT stop Cloud SQL.** `teardown.sh` (stop) or `--delete` would take the
+  portal down. Leave the instance running the whole time.
+- **The portal and console stay warm automatically.** `deploy.sh` gives them
+  `min-instances=1`, so a judge opening the link gets no cold-start lag. (The
+  scorer scales to zero; its first call after idle adds ~2 s, which is fine. To
+  trim a little credit you can set `WARM_PORTAL=0 WARM_CONSOLE=0 bash
+  deploy/deploy.sh`, at the cost of a brief wake-up on the first visit.)
+- **Keep credit alive past Dec 4.** Keep the budget alert on. If the 90-day free
+  trial would expire before the finale, upgrade the project to pay-as-you-go
+  (Billing → upgrade) so services don't pause — the ongoing cost is still only
+  a few dollars a month.
+- **Verify it's up** any time:
+  ```bash
+  curl -s "$(gcloud run services describe portal --region <REGION> --format='value(status.url)')/healthz"
+  gcloud sql instances describe <SQL_INSTANCE> --format='value(state)'   # want RUNNABLE
+  ```
+- **Put these in your submission** so judges can actually use it: the portal URL
+  with login `daniel` / `Seroja@2026`, the console URL with the console
+  password, and the `/collect` link to try it as a fresh user.
 
 ## Rough cost
 

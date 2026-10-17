@@ -18,10 +18,18 @@ COMMON_ENV="ENV=cloud,GCP_PROJECT=${PROJECT_ID},GCP_REGION=${REGION}"
 DB_ENV="DB_USER=${DB_USER},DB_NAME=${DB_NAME},INSTANCE_CONNECTION_NAME=${INSTANCE_CONNECTION_NAME}"
 RUN_COMMON=(--region "$REGION" --service-account "$RUN_SA_EMAIL"
             --add-cloudsql-instances "$INSTANCE_CONNECTION_NAME"
-            --min-instances=0 --max-instances=2 --allow-unauthenticated --quiet)
+            --max-instances=2 --allow-unauthenticated --quiet)
+
+# The portal and console are the public, judge-facing links (the submission's
+# Final Product Link), so keep one warm instance each -> no cold-start lag for
+# a judge opening the URL. The scorer scales to zero (its first call after idle
+# adds a ~2 s warm-up, acceptable). Set WARM_PORTAL=0 to save a little credit.
+WARM_PORTAL="${WARM_PORTAL:-1}"
+WARM_CONSOLE="${WARM_CONSOLE:-1}"
 
 log "Deploying scorer..."
 gcloud run deploy scorer --image "$AR/scorer:$TAG" "${RUN_COMMON[@]}" \
+  --min-instances=0 \
   --set-env-vars "${COMMON_ENV},${DB_ENV},EVENT_TRANSPORT=pubsub,ANALYTICS_SINK=bigquery,BQ_DATASET=${BQ_DATASET},MODEL_URI=gs://${BUCKET}/models/latest.json,BENCHMARK_URI=gs://${BUCKET}/benchmark/benchmark.json,LLM_MODE=vertex,GEMINI_MODEL=${GEMINI_MODEL},ALLOW_BELOW=${ALLOW_BELOW},BLOCK_ABOVE=${BLOCK_ABOVE}" \
   --set-secrets "DB_PASS=db-password:latest,INTERNAL_TOKEN=internal-token:latest,PUBSUB_PUSH_TOKEN=pubsub-push-token:latest,IP_HASH_SALT=ip-hash-salt:latest"
 SCORER_URL="$(gcloud run services describe scorer --region "$REGION" --format='value(status.url)')"
@@ -29,12 +37,14 @@ log "  scorer: $SCORER_URL"
 
 log "Deploying console..."
 gcloud run deploy console --image "$AR/console:$TAG" "${RUN_COMMON[@]}" \
+  --min-instances="$WARM_CONSOLE" \
   --set-env-vars "${COMMON_ENV},${DB_ENV},BQ_DATASET=${BQ_DATASET},BENCHMARK_URI=gs://${BUCKET}/benchmark/benchmark.json" \
   --set-secrets "DB_PASS=db-password:latest,CONSOLE_PASSWORD=console-password:latest"
 CONSOLE_URL="$(gcloud run services describe console --region "$REGION" --format='value(status.url)')"
 
 log "Deploying portal..."
 gcloud run deploy portal --image "$AR/portal:$TAG" "${RUN_COMMON[@]}" \
+  --min-instances="$WARM_PORTAL" \
   --set-env-vars "${COMMON_ENV},${DB_ENV},EVENT_TRANSPORT=pubsub,PUBSUB_TOPIC=${PUBSUB_TOPIC},SCORER_URL=${SCORER_URL},ALLOW_DATA_COLLECTION=${ALLOW_DATA_COLLECTION}" \
   --set-secrets "DB_PASS=db-password:latest,SESSION_SECRET=session-secret:latest,IP_HASH_SALT=ip-hash-salt:latest,INTERNAL_TOKEN=internal-token:latest"
 PORTAL_URL="$(gcloud run services describe portal --region "$REGION" --format='value(status.url)')"
