@@ -1,0 +1,5 @@
+# Red-team dependencies (run from the developer laptop, not in the services).
+playwright>=1.44
+google-genai>=1.0
+pydantic>=2.6
+-e ../core

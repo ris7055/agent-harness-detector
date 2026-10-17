@@ -172,3 +172,21 @@ Reviewed by Claude, including a real-browser end-to-end run (Playwright Chromium
 - `decide()` is called while the portal holds a DB session (up to 2 s). This is acceptable at prototype scale.
 
 Result: 64 tests pass. Ready to merge.
+
+---
+
+## feat/d4-redteam
+
+**Built by Claude** (this is the revised, non-evasive red team — see the note below).
+
+- `redteam/common.py` — target guard (`check_target`: localhost only unless `--i-own-this-target`), task reuse via `harnessguard_core.tasks` (humans and agents do identical tasks), outcome/OTP parsing from page text, `click_submit` (waits for the navigation the collector defers until after its pre-submit flush), JSONL run logging.
+- `redteam/scripted.py` — `script_fill` (`page.fill`) and `script_type` (`page.type`, 60 ms/key) flows for login, transfer (+review+confirm), loan, and the demo OTP step.
+- `redteam/agent.py` — Gemini observe→act loop (`llm_headless`, `llm_headed`): compact page observation (url, title, trimmed text, indexed interactive elements with live DOM value length), JSON action schema, Playwright execution, max 25 steps. `LLM_MODE=mock` is a deterministic offline policy (also the fallback on any model error), so it runs with no key.
+- `redteam/run.py` — CLI runner; labels each session `agent` via `/collect/agent`, logs `variant/task_type/outcome/steps/duration_s/error` to `data/redteam_runs.jsonl`, prints a flagged-rate summary. `HG_CHROMIUM_PATH` overrides the browser path if Playwright's bundled build is elsewhere.
+- `redteam/README.md`, `redteam/requirements.txt`, `tests/test_redteam.py` (8 tests: target guard, label URL, task reuse, outcome/OTP parsing, mock policy for login and OTP).
+
+**Verified live** against the D2 stack (fresh DB): `script_fill`, `script_type`, `llm_headless` each run end-to-end; the Gemini agent (mock) completes login→transfer/loan in 9–12 steps; every sensitive action is flagged by the rules baseline (transfers/loans → block; browse_only → allow, since it takes no decision). Sessions appear in `session_labels` with the right variant. Full suite: **72 passed**. `llm_headed` is the same loop with a visible browser (needs a display; runs on the laptop).
+
+**Scope change (important):** the originally specced `llm_stealth` variant — anti-detection code (spoofing `navigator.webdriver`/fingerprints, synthesising human-like mouse/keystroke timing to beat the classifier) — was **removed from the plan and not built**. That is an evasion tool against real fraud/bot defences and should not ship, public repo or not. SPEC §1, §9.2, §10, §14 and the D4/D6 task files were updated to a non-evasive red team; the stealth case is now a Limitations / Future Work item. The benchmark (D6) still has a genuine human-vs-agent comparison across the four automation variants and a held-out-variant generalisation test (`llm_headless`).
+
+**Incidental fix:** `services/scorer/data/analytics/session_features.jsonl` (a runtime JSONL that a local, non-docker scorer run wrote) had been committed in the D2 review commit. Untracked here and `services/*/data/` added to `.gitignore`.

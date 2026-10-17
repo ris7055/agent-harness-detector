@@ -18,7 +18,7 @@ Fraudsters increasingly use **AI agent harnesses** — an LLM driving a real bro
 
 ### Unique selling points (for the Opportunities slide)
 1. Targets **LLM-driven agents**, not scripted bots — the gap CAPTCHAs and UA checks leave open.
-2. **Behaviour over fingerprint**: we show (benchmark) that fingerprint-only detection collapses against a stealth agent, while behavioural features hold up.
+2. **Behaviour over fingerprint**: we show (benchmark) that behavioural features add detection power beyond fingerprint flags alone, so the detector does not rest on a single signal. (Defeating a deliberately evasive "stealth" agent is **out of scope** — see §9.2 and the Limitations slide.)
 3. **Decision at the point of risk**: scoring runs continuously, the decision is taken at the transfer confirmation, with graduated friction (OTP) instead of blanket blocking.
 4. **Explainable**: every flag comes with a human-readable reason and evidence an analyst can verify (including a mouse-path replay).
 5. **Privacy by design**: no keystroke values, no field contents, IP stored only as a salted hash.
@@ -309,8 +309,7 @@ Run from a laptop against a portal URL. A run opens the portal with `?hg_label=a
 | `script_type` | Scripted Playwright, `page.type(delay=60)`, headless. |
 | `llm_headless` | **Gemini agent loop**: each step sends a compact accessibility/DOM summary + task to Gemini, receives one JSON action (`click`, `type`, `select`, `navigate`, `done`), executes with Playwright. Headless Chromium. |
 | `llm_headed` | Same, headed Chromium. |
-| `llm_stealth` | Same, headed, plus stealth: `navigator.webdriver` hidden, fake plugins/languages, realistic UA/viewport, humanised timing (random think-time 0.4–2.5 s, per-key delays from a log-normal), Bézier mouse movement to a random point inside the target. **The hardest adversary — must exist for the benchmark story.** |
-| `browser_use` (optional) | The open-source `browser-use` library with Gemini, if it installs cleanly. |
+**Out of scope — not built:** a `stealth` / anti-detection variant (hiding `navigator.webdriver`, faking fingerprints, synthesising human-like mouse/keystroke timing). Building a tool to slip automated agents past fraud and bot defences is not something this project ships; it is documented as a Limitation / Future Work item instead. The red team is therefore **non-evasive** — it measures detection of ordinary browser automation, which is the realistic threat model.
 
 `redteam/run.py --base-url URL --variant V --n N --task random --concurrency 2` — logs each run to `data/redteam_runs.jsonl` (variant, task, success/blocked/step_up, duration). Gemini for the red team uses `LLM_MODE=apikey` by default to save cloud credit.
 
@@ -318,10 +317,10 @@ Run from a laptop against a portal URL. A run opens the portal with `?hg_label=a
 
 ## 10. ML pipeline (`ml/`)
 
-1. `build_dataset.py --source postgres|bigquery` → loads events + `session_labels` (only labelled sessions), computes features **up to the first decision point** (or end of session if no decision), assigns a **grouped split**: humans grouped by `collector`, agents by `variant` × run batch — so the test set contains people and runs never seen in training. Also a held-out **variant split**: train without `llm_stealth`, test on it. Writes `data/training_features.parquet` and (cloud) `harness_detector.training_features`.
+1. `build_dataset.py --source postgres|bigquery` → loads events + `session_labels` (only labelled sessions), computes features **up to the first decision point** (or end of session if no decision), assigns a **grouped split**: humans grouped by `collector`, agents by `variant` × run batch — so the test set contains people and runs never seen in training. Also a held-out **variant split**: train without one agent variant (e.g. `llm_headless`) and test on it, to show the model generalises to an unseen automation style. Writes `data/training_features.parquet` and (cloud) `harness_detector.training_features`.
 2. `train.py` → XGBoost (`max_depth=4, n_estimators=300, learning_rate=0.05, subsample=0.8`, `scale_pos_weight` for imbalance) → `data/model/model.json` + `model_meta.json` (version = UTC timestamp, feature_names, human per-feature median/IQR, metrics). `--upload gs://BUCKET/models/` uploads and updates `gs://BUCKET/models/latest.json` pointer.
 3. `bqml/train.sql` → `CREATE OR REPLACE MODEL harness_detector.agent_clf OPTIONS(model_type='BOOSTED_TREE_CLASSIFIER', input_label_cols=['label'], model_registry='vertex_ai', vertex_ai_model_id='harnessguard_agent_clf')` on the train split; `bqml/evaluate.sql` → `ML.EVALUATE` on the test split.
-4. `benchmark.py` → evaluates on the test split: **rules baseline**, **fingerprint-only XGBoost**, **behaviour-only XGBoost**, **full XGBoost**, and **BQML** (reads its `ML.PREDICT` output). Metrics: precision, recall, F1, ROC-AUC, **false-positive rate on humans**, detection rate per variant (especially `llm_stealth`), **early detection** (F1 using only the first 5/10/20/30 s of each session), decision latency p50/p95 (from `decisions`). Writes `data/benchmark.json` (+ upload to GCS, + `benchmark_results` table) and PNG charts in `data/charts/` for the slides.
+4. `benchmark.py` → evaluates on the test split: **rules baseline**, **fingerprint-only XGBoost**, **behaviour-only XGBoost**, **full XGBoost**, and **BQML** (reads its `ML.PREDICT` output). Metrics: precision, recall, F1, ROC-AUC, **false-positive rate on humans**, detection rate per variant (`script_fill`, `script_type`, `llm_headless`, `llm_headed`), **early detection** (F1 using only the first 5/10/20/30 s of each session), decision latency p50/p95 (from `decisions`). Writes `data/benchmark.json` (+ upload to GCS, + `benchmark_results` table) and PNG charts in `data/charts/` for the slides.
 
 Honesty rule: report the real numbers and dataset sizes; never train on test sessions; no synthetic "human" sessions.
 
@@ -384,9 +383,9 @@ Red team locally: `pip install -r redteam/requirements.txt && playwright install
 
 1. (0:00) Problem: AI agents now operate banking sessions; CAPTCHAs don't stop them.
 2. (0:25) Human logs into Bank Seroja, transfers RM 120 → allowed. Console shows the session green.
-3. (0:55) `python redteam/run.py --variant llm_stealth` — Gemini agent logs in and attempts a RM 4,800 transfer to a new payee.
+3. (0:55) `python redteam/run.py --variant llm_headless` — a Gemini-driven agent logs in and attempts a RM 4,800 transfer to a new payee.
 4. (1:30) Portal shows "held for review". Console: case opens live, Gemini explanation, mouse-path replay (straight jumps vs human curves).
-5. (2:10) Benchmark page: fingerprint-only fails on stealth, behaviour model holds; early detection within N seconds; latency.
+5. (2:10) Benchmark page: human-vs-agent detection across the automation variants, behaviour features add lift over fingerprint-only, early detection within N seconds, latency. (Stealth/evasive agents named as a Future Work limitation.)
 6. (2:40) Architecture + Google Cloud services, close.
 
 ---

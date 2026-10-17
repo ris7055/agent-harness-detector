@@ -33,3 +33,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Runtime analytics output from a local (non-docker) scorer run
+services/*/data/
