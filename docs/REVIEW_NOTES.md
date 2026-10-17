@@ -302,3 +302,17 @@ status update → `confirmed_fraud` all verified with curl.
 **Verified:** `bash -n` + `shellcheck -x` clean on all four scripts; no hardcoded project ids/URLs/secrets; `bq_schema.py` column counts correct (session_features 50, training_features 51); the cloud `DATABASE_URL` builder and the unchanged local default both check out; full suite **72 passed**. The scripts themselves can only be run for real in Cloud Shell (they call `gcloud`/`bq`), so they are validated by lint + review, not executed here.
 
 **Depends on D2** (merged). Branched off `main` after D2+D4.
+
+### Review: feat/d5-console (Claude)
+
+Reviewed and smoke-tested live (portal + scorer + console, a real `script_fill` bot session generating a case). **No blocking issues — merged `main` (D3) in and it's ready.**
+
+Checks that passed:
+- **Auth** — console is gated by an HMAC-of-`CONSOLE_PASSWORD` signed cookie, constant-time compared; unauth → 303 (pages) / 401 (`/api/*`); wrong password → 401; cookie is `HttpOnly`, `SameSite=Lax` (mitigates CSRF on the state-changing POSTs), `Secure` on `ENV=cloud`.
+- **SQL** — every query in `queries.py` is parameterised; log filters are whitelisted (`decision`/`band` against fixed sets, `user`/timestamps bound).
+- **Scorer proxy** — `/cases/{id}/explain` only forwards a validated int case id with the `X-HG-Internal` token; scorer failure is caught and never breaks the page.
+- **Explainer** — `generate_explanation` never raises (errors stored as `{"error": …}`); the decision path only queues a background task, so decisions never block on the LLM; mock mode deterministic; Gemini path uses a response schema. The context-poll `time.sleep` runs in a threadpool background task, not the event loop.
+- **Privacy** — the replay/event API returns only the stored telemetry (coordinates, timings, `key_class`, `value_length`); a forbidden-key scan of the replay payloads came back clean.
+- **Live** — login, live sessions, `/cases`, case detail (explanation card + mouse-path replay canvas + fingerprint + timeline), `/log` + filters, `/log.csv` (real rows incl. top reasons), regenerate round-trip, status update, and `/benchmark` (renders `tests/fixtures/benchmark.sample.json`) all work. Full suite **92 passed**.
+
+Open item (expected): `LLM_MODE=apikey` with a real key is implemented but unverifiable without a key — confirm at deploy time.
