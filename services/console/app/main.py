@@ -330,7 +330,9 @@ def _load_benchmark() -> dict[str, Any] | None:
         else:
             raw = Path(uri).read_bytes()
         return json.loads(raw)
-    except Exception:  # noqa: BLE001 - missing/corrupt file -> friendly page
+    except FileNotFoundError:
+        return None  # not generated yet -> "run ml/benchmark.py" page
+    except Exception:  # noqa: BLE001 - corrupt/unreadable -> same page
         log.warning("could not load benchmark from %s", uri, exc_info=True)
         return None
 
