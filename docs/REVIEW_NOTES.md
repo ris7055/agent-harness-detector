@@ -190,3 +190,27 @@ Result: 64 tests pass. Ready to merge.
 **Scope change (important):** the originally specced `llm_stealth` variant — anti-detection code (spoofing `navigator.webdriver`/fingerprints, synthesising human-like mouse/keystroke timing to beat the classifier) — was **removed from the plan and not built**. That is an evasion tool against real fraud/bot defences and should not ship, public repo or not. SPEC §1, §9.2, §10, §14 and the D4/D6 task files were updated to a non-evasive red team; the stealth case is now a Limitations / Future Work item. The benchmark (D6) still has a genuine human-vs-agent comparison across the four automation variants and a held-out-variant generalisation test (`llm_headless`).
 
 **Incidental fix:** `services/scorer/data/analytics/session_features.jsonl` (a runtime JSONL that a local, non-docker scorer run wrote) had been committed in the D2 review commit. Untracked here and `services/*/data/` added to `.gitignore`.
+
+---
+
+## feat/d3-deploy
+
+**Built by Claude** — Google Cloud deployment, run from Cloud Shell (SPEC §13).
+
+- `deploy/config.env.example` — all config vars; real `config.env` is gitignored.
+- `deploy/lib.sh` — shared config loader + helpers (sourced by the scripts).
+- `deploy/bq_schema.py` — emits BigQuery JSON schemas; the 44 feature columns are generated from `FEATURE_NAMES`, so the BQ tables can't drift from the scorer.
+- `deploy/setup.sh` — idempotent: enables APIs; creates Artifact Registry, Secret Manager secrets (random, only if missing), runtime SA + roles, bucket, Cloud SQL (PostgreSQL 15, `db-f1-micro`) + DB, BigQuery dataset/tables/view, Pub/Sub topic. Prints the console password.
+- `deploy/cloudbuild.yaml` — builds the three images (repo-root context) and pushes to Artifact Registry.
+- `deploy/deploy.sh` — Cloud Build → deploys scorer, console, portal to Cloud Run (runtime SA, Cloud SQL attach, secrets as env, `ENV=cloud`, `EVENT_TRANSPORT=pubsub`, `ANALYTICS_SINK=bigquery`, `LLM_MODE=vertex`, `MODEL_URI`/`BENCHMARK_URI` on GCS); wires `SCORER_URL` into the portal; creates/updates the push subscription (→ scorer `/pubsub/events?token=…`) and the BigQuery subscription (→ `raw_event_batches`); prints the three URLs.
+- `deploy/teardown.sh` — `stop` (Cloud SQL → NEVER) / `--start` / `--delete` (confirmed).
+- `docs/DEPLOY.md` — beginner Cloud Shell walkthrough; README links to it.
+
+**Cloud-readiness (touches core/services):**
+- `config.py` — on `ENV=cloud`, builds the Cloud SQL unix-socket `DATABASE_URL` from `DB_USER`/`DB_PASS`/`DB_NAME`/`INSTANCE_CONNECTION_NAME` (password stays in Secret Manager; never in the deploy command or image). Local default unchanged.
+- The three Dockerfiles now `exec uvicorn … --port ${PORT:-80xx}` so Cloud Run's `$PORT` is honoured; local compose keeps 8080/8081/8082.
+- Scorer already reads `gs://` model URIs and falls back to rules when the file is absent — no change needed.
+
+**Verified:** `bash -n` + `shellcheck -x` clean on all four scripts; no hardcoded project ids/URLs/secrets; `bq_schema.py` column counts correct (session_features 50, training_features 51); the cloud `DATABASE_URL` builder and the unchanged local default both check out; full suite **72 passed**. The scripts themselves can only be run for real in Cloud Shell (they call `gcloud`/`bq`), so they are validated by lint + review, not executed here.
+
+**Depends on D2** (merged). Branched off `main` after D2+D4.

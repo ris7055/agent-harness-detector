@@ -15,8 +15,8 @@
 7. `docs/DEPLOY.md`: step-by-step for a beginner in Cloud Shell (clone, `cp deploy/config.env.example deploy/config.env`, edit with `vim`, `bash deploy/setup.sh`, `bash deploy/deploy.sh`, how to see logs, how to stop Cloud SQL to save credit, rough cost notes).
 
 ## Acceptance criteria
-- [ ] `bash -n` passes on all scripts; scripts use `set -euo pipefail` and read only from `deploy/config.env`.
-- [ ] Re-running `setup.sh` is safe (no failures on existing resources).
-- [ ] No hardcoded project IDs, URLs, or secrets anywhere.
-- [ ] `.gitattributes` keeps `*.sh` as LF.
-- [ ] `docs/DEPLOY.md` written; README links to it.
+- [x] `bash -n` passes on all scripts; scripts use `set -euo pipefail` and read only from `deploy/config.env`.
+- [x] Re-running `setup.sh` is safe (no failures on existing resources).
+- [x] No hardcoded project IDs, URLs, or secrets anywhere.
+- [x] `.gitattributes` keeps `*.sh` as LF.
+- [x] `docs/DEPLOY.md` written; README links to it.
