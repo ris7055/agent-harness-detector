@@ -31,6 +31,7 @@ from harnessguard_core.events import EventBatch
 from harnessguard_core.features import compute_features
 from harnessguard_core.rules import band_for_score, decision_for_score
 
+from . import explain
 from .model import Scorer
 
 log = logging.getLogger("scorer")
@@ -203,9 +204,13 @@ def _wait_for_seq(session_id: uuid.UUID, last_seq: int) -> None:
 
 
 def _generate_explanation(case_id: int) -> None:
-    """Queued after a case is created so decisions never block on the LLM.
-    The Gemini explainer itself is implemented in D5 (SPEC 7.4)."""
-    log.info("case %s queued for explanation (implemented in D5)", case_id)
+    """Queued after a case is created so decisions never block on the LLM
+    (SPEC 7.2 step 4). The explainer stores its result on the case row and
+    never raises."""
+    try:
+        explain.generate_explanation(case_id, scorer=_scorer)
+    except Exception:  # noqa: BLE001 - belt and braces; explain never raises
+        log.exception("explanation task crashed for case %s", case_id)
 
 
 @app.post("/v1/decide", dependencies=[Depends(_require_internal)])
@@ -298,10 +303,9 @@ def session_score(session_id: uuid.UUID):
 
 @app.post("/v1/cases/{case_id}/explain", dependencies=[Depends(_require_internal)])
 def explain_case(case_id: int):
-    return JSONResponse(
-        status_code=501,
-        content={"error": "Gemini explainer is implemented in D5"},
-    )
+    if not explain.case_exists(case_id):
+        raise HTTPException(status_code=404, detail="unknown case")
+    return explain.generate_explanation(case_id, scorer=_scorer)
 
 
 @app.get("/healthz")

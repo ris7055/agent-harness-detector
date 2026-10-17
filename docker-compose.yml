@@ -75,12 +75,18 @@ services:
       ENV: ${ENV:-local}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hg:hg@db:5432/harnessguard}
       CONSOLE_PASSWORD: ${CONSOLE_PASSWORD:-change-me}
+      SCORER_URL: ${SCORER_URL:-http://scorer:8081}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-change-me}
       BENCHMARK_URI: ${BENCHMARK_URI:-./data/benchmark.json}
     ports:
       - "8082:8082"
+    volumes:
+      - ./data:/app/services/console/data   # BENCHMARK_URI default ./data/benchmark.json
     depends_on:
       db:
         condition: service_healthy
+      scorer:
+        condition: service_started
 
 volumes:
   hg_db:

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}HarnessGuard Console{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/static/console.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
+  <div class="bg-slate-900 text-amber-300 text-center text-xs font-semibold tracking-wide py-1.5 px-3">
+    HarnessGuard analyst console — DEMO · fictional bank data only
+  </div>
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <span class="inline-flex w-8 h-8 rounded-lg bg-slate-900 text-white text-sm font-bold items-center justify-center">HG</span>
+        <span class="text-lg font-semibold tracking-tight text-slate-900">HarnessGuard</span>
+        <span class="text-xs text-slate-400 mt-0.5">analyst console</span>
+      </a>
+      <nav class="flex items-center gap-1 text-sm">
+        {% set nav = [("/", "Live sessions", "sessions"), ("/cases", "Cases", "cases"), ("/log", "Detection log", "log"), ("/benchmark", "Benchmark", "benchmark")] %}
+        {% for href, label, key in nav %}
+        <a href="{{ href }}"
+           class="px-3 py-1.5 rounded-md {{ 'bg-slate-900 text-white' if page == key else 'text-slate-600 hover:bg-slate-100' }}">{{ label }}</a>
+        {% endfor %}
+        <span class="text-slate-300 px-1">|</span>
+        <a class="text-slate-500 hover:text-slate-900 px-2" href="/logout">Log out</a>
+      </nav>
+    </div>
+  </header>
+  <main class="flex-1 w-full max-w-6xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="text-center text-xs text-slate-400 pb-6">
+    HarnessGuard demo — Bank Seroja is fictional; behaviour data is timing-only.
+  </footer>
+</body>
+</html>

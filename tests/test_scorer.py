@@ -181,9 +181,10 @@ def test_decide_tolerates_missing_seq(scorer_client, monkeypatch):
     assert r.json()["latency_ms"] < 300
 
 
-def test_explain_stub_501(scorer_client):
-    r = scorer_client.post("/v1/cases/1/explain", headers=INTERNAL)
-    assert r.status_code == 501
+def test_explain_endpoint_exists(scorer_client):
+    # full explainer coverage lives in test_explain.py (D5)
+    r = scorer_client.post("/v1/cases/999999/explain", headers=INTERNAL)
+    assert r.status_code == 404
 
 
 def test_pubsub_push_decodes_envelope(scorer_client):

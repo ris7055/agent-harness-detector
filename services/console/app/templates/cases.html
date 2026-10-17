@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Cases — HarnessGuard Console{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold text-slate-900">Cases</h1>
+  <span class="text-xs text-slate-400">open cases first</span>
+</div>
+<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200 bg-slate-50">
+        <th class="px-4 py-2.5">Case</th>
+        <th class="px-4 py-2.5">Opened</th>
+        <th class="px-4 py-2.5">Session</th>
+        <th class="px-4 py-2.5">User</th>
+        <th class="px-4 py-2.5">Action</th>
+        <th class="px-4 py-2.5 text-right">Score</th>
+        <th class="px-4 py-2.5">Decision</th>
+        <th class="px-4 py-2.5">Status</th>
+        <th class="px-4 py-2.5">Explanation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in cases %}
+      <tr class="border-b border-slate-100 hover:bg-slate-50">
+        <td class="px-4 py-2.5">
+          <a class="font-mono text-xs font-semibold text-slate-900 hover:underline" href="/cases/{{ c.id }}">CASE-{{ '%04d' % c.id }}</a>
+        </td>
+        <td class="px-4 py-2.5 text-slate-500 text-xs">{{ c.created_at.strftime('%Y-%m-%d %H:%M:%S') if c.created_at else '—' }}</td>
+        <td class="px-4 py-2.5 font-mono text-xs text-slate-500" title="{{ c.session_id }}">{{ (c.session_id|string)[:8] if c.session_id else '—' }}</td>
+        <td class="px-4 py-2.5">{{ c.username or '—' }}</td>
+        <td class="px-4 py-2.5 text-slate-600">{{ c.action or '—' }}</td>
+        <td class="px-4 py-2.5 text-right font-medium">{{ '%.2f' % c.score if c.score is not none else '—' }}</td>
+        <td class="px-4 py-2.5">
+          {% set dcls = {'allow': 'bg-emerald-100 text-emerald-800', 'step_up': 'bg-amber-100 text-amber-800', 'block': 'bg-red-100 text-red-800'} %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium {{ dcls.get(c.decision, 'bg-slate-100 text-slate-600') }}">{{ c.decision }}</span>
+        </td>
+        <td class="px-4 py-2.5">
+          {% set scls = {'open': 'bg-sky-100 text-sky-800', 'confirmed_fraud': 'bg-red-100 text-red-800', 'false_positive': 'bg-slate-100 text-slate-600'} %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium {{ scls.get(c.status, 'bg-slate-100 text-slate-600') }}">{{ c.status.replace('_', ' ') }}</span>
+        </td>
+        <td class="px-4 py-2.5">
+          {% if c.has_explanation %}
+          <span class="text-xs text-emerald-700 font-medium">ready</span>
+          {% else %}
+          <span class="text-xs text-slate-400">pending</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No cases yet — flagged decisions appear here.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Detection log — HarnessGuard Console{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold text-slate-900">Detection log</h1>
+  <span class="text-xs text-slate-400">every decision, newest first · auto-refresh 3 s</span>
+</div>
+
+<form method="get" action="/log" class="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex flex-wrap items-end gap-3 text-sm">
+  <div>
+    <label class="block text-xs font-medium text-slate-500 mb-1">Decision</label>
+    <select name="decision" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+      <option value="">all</option>
+      {% for d in ["allow", "step_up", "block"] %}
+      <option value="{{ d }}" {{ 'selected' if filters.get('decision') == d }}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-500 mb-1">Band</label>
+    <select name="band" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+      <option value="">all</option>
+      {% for b in ["green", "amber", "red"] %}
+      <option value="{{ b }}" {{ 'selected' if filters.get('band') == b }}>{{ b }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-500 mb-1">User</label>
+    <select name="user" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+      <option value="">all</option>
+      {% for u in usernames %}
+      <option value="{{ u }}" {{ 'selected' if filters.get('user') == u }}>{{ u }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-500 mb-1">From</label>
+    <input type="datetime-local" name="from" value="{{ filters.get('from', '') }}" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-500 mb-1">To</label>
+    <input type="datetime-local" name="to" value="{{ filters.get('to', '') }}" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
+  </div>
+  <button class="rounded-md bg-slate-900 text-white text-sm font-medium px-4 py-1.5 hover:bg-slate-700">Filter</button>
+  <a href="/log" class="text-sm text-slate-500 hover:text-slate-800 px-2 py-1.5">Reset</a>
+  <a id="csv-link" href="/log.csv" class="ml-auto rounded-md border border-slate-300 text-sm px-3 py-1.5 text-slate-600 hover:bg-slate-50">Export CSV</a>
+</form>
+
+<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200 bg-slate-50">
+        <th class="px-3 py-2.5 w-8"></th>
+        <th class="px-3 py-2.5">Time</th>
+        <th class="px-3 py-2.5">Session</th>
+        <th class="px-3 py-2.5">User</th>
+        <th class="px-3 py-2.5">Action</th>
+        <th class="px-3 py-2.5 text-right">Amount</th>
+        <th class="px-3 py-2.5 text-right">Score</th>
+        <th class="px-3 py-2.5">Band</th>
+        <th class="px-3 py-2.5">Decision</th>
+        <th class="px-3 py-2.5">Model</th>
+        <th class="px-3 py-2.5 text-right">ms</th>
+        <th class="px-3 py-2.5">Top reasons</th>
+      </tr>
+    </thead>
+    <tbody id="log-body">
+      <tr><td colspan="12" class="px-4 py-8 text-center text-slate-400">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+const tbody = document.getElementById('log-body');
+const params = new URLSearchParams(window.location.search);
+document.getElementById('csv-link').href = '/log.csv' + (params.toString() ? '?' + params.toString() : '');
+
+const esc = hgEsc;
+const expanded = new Set();       // decision ids whose timeline is open
+const timelines = new Map();      // decision id -> fetched events
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour12: false});
+}
+
+const BAND_TXT = {green: 'text-emerald-700', amber: 'text-amber-700', red: 'text-red-700'};
+const DEC_CLS = {allow: 'bg-emerald-100 text-emerald-800', step_up: 'bg-amber-100 text-amber-800', block: 'bg-red-100 text-red-800'};
+
+function reasonsHtml(reasons) {
+  if (!reasons || !reasons.length) return '<span class="text-slate-300">—</span>';
+  return reasons.map(r =>
+    `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-xs mr-1" title="contribution ${r.contribution}">${esc(r.feature)}=${esc(r.value)}</span>`
+  ).join('');
+}
+
+function rowHtml(d) {
+  const sid = d.session_id ? String(d.session_id).slice(0, 8) : '—';
+  const session = d.case_id
+    ? `<a class="font-mono text-xs text-slate-700 hover:underline" href="/cases/${d.case_id}" title="${esc(d.session_id)}">${esc(sid)}</a>`
+    : `<span class="font-mono text-xs text-slate-500" title="${esc(d.session_id)}">${esc(sid)}</span>`;
+  const amount = d.amount_cents != null ? 'RM ' + (d.amount_cents / 100).toLocaleString(undefined, {minimumFractionDigits: 2}) : '—';
+  return `<tr class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" data-id="${d.id}">
+    <td class="px-3 py-2 text-slate-400">${expanded.has(d.id) ? '▾' : '▸'}</td>
+    <td class="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">${fmtTime(d.created_at)}</td>
+    <td class="px-3 py-2">${session}</td>
+    <td class="px-3 py-2">${esc(d.username || '—')}</td>
+    <td class="px-3 py-2 text-slate-600">${esc(d.action)}</td>
+    <td class="px-3 py-2 text-right text-slate-600 whitespace-nowrap">${amount}</td>
+    <td class="px-3 py-2 text-right font-medium">${d.score != null ? d.score.toFixed(2) : '—'}</td>
+    <td class="px-3 py-2 text-xs font-medium ${BAND_TXT[d.band] || 'text-slate-400'}">${esc(d.band || '—')}</td>
+    <td class="px-3 py-2"><span class="px-2 py-0.5 rounded-full text-xs font-medium ${DEC_CLS[d.decision] || 'bg-slate-100'}">${esc(d.decision)}</span></td>
+    <td class="px-3 py-2 text-xs text-slate-500">${esc(d.model_version || '—')}</td>
+    <td class="px-3 py-2 text-right text-xs text-slate-500">${d.latency_ms ?? '—'}</td>
+    <td class="px-3 py-2">${reasonsHtml(d.top_reasons)}</td>
+  </tr>
+  <tr class="timeline-row ${expanded.has(d.id) ? '' : 'hidden'}" data-for="${d.id}">
+    <td colspan="12" class="bg-slate-50 px-6 py-2">
+      <div class="text-xs text-slate-400 mb-1">event timeline — session ${esc(sid)}${d.case_id ? ` · <a class="underline" href="/cases/${d.case_id}">open case CASE-${String(d.case_id).padStart(4, '0')}</a>` : ''}</div>
+      <div class="timeline-slot max-h-64 overflow-y-auto" id="tl-${d.id}"><div class="text-xs text-slate-400 py-2">loading…</div></div>
+    </td>
+  </tr>`;
+}
+
+async function fillTimeline(id) {
+  const slot = document.getElementById('tl-' + id);
+  if (!slot) return;
+  if (!timelines.has(id)) {
+    try {
+      const r = await fetch(`/api/decisions/${id}/timeline`);
+      timelines.set(id, r.ok ? (await r.json()).events : []);
+    } catch (e) { timelines.set(id, []); }
+  }
+  hgRenderTimeline(slot, timelines.get(id));
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/decisions?' + params.toString());
+    if (!r.ok) return;
+    const {decisions} = await r.json();
+    tbody.innerHTML = decisions.length
+      ? decisions.map(rowHtml).join('')
+      : '<tr><td colspan="12" class="px-4 py-8 text-center text-slate-400">No decisions match the filters.</td></tr>';
+    for (const id of expanded) fillTimeline(id);
+  } catch (e) { /* keep last render */ }
+}
+
+tbody.addEventListener('click', ev => {
+  const tr = ev.target.closest('tr[data-id]');
+  if (!tr || ev.target.closest('a')) return;
+  const id = Number(tr.dataset.id);
+  if (expanded.has(id)) {
+    expanded.delete(id);
+    tr.nextElementSibling.classList.add('hidden');
+    tr.cells[0].textContent = '▸';
+  } else {
+    expanded.add(id);
+    tr.nextElementSibling.classList.remove('hidden');
+    tr.cells[0].textContent = '▾';
+    fillTimeline(id);
+  }
+});
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+{% endblock %}

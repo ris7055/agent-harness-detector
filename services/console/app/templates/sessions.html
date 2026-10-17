@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Live sessions — HarnessGuard Console{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold text-slate-900">Live sessions</h1>
+  <span class="text-xs text-slate-400">auto-refreshes every 3 s</span>
+</div>
+<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200 bg-slate-50">
+        <th class="px-4 py-2.5">Session</th>
+        <th class="px-4 py-2.5">User</th>
+        <th class="px-4 py-2.5">Started</th>
+        <th class="px-4 py-2.5">Pages</th>
+        <th class="px-4 py-2.5 text-right">Events</th>
+        <th class="px-4 py-2.5 w-48">Score</th>
+        <th class="px-4 py-2.5">Last decision</th>
+        <th class="px-4 py-2.5">Label</th>
+      </tr>
+    </thead>
+    <tbody id="sessions-body">
+      <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+const tbody = document.getElementById('sessions-body');
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+}
+
+function decisionBadge(d) {
+  if (!d) return '<span class="text-slate-300">—</span>';
+  const cls = {allow: 'bg-emerald-100 text-emerald-800',
+               step_up: 'bg-amber-100 text-amber-800',
+               block: 'bg-red-100 text-red-800'}[d] || 'bg-slate-100 text-slate-600';
+  return `<span class="px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${esc(d)}</span>`;
+}
+
+function scoreCell(score, band) {
+  if (score === null || score === undefined) return '<span class="text-slate-300">—</span>';
+  const pct = Math.max(0, Math.min(100, score * 100));
+  const bar = {green: 'bg-emerald-500', amber: 'bg-amber-500',
+               red: 'bg-red-500'}[band] || 'bg-slate-400';
+  const txt = {green: 'text-emerald-700', amber: 'text-amber-700',
+               red: 'text-red-700'}[band] || 'text-slate-500';
+  return `<div class="flex items-center gap-2">
+    <div class="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full ${bar}" style="width:${pct}%"></div></div>
+    <span class="text-xs font-medium ${txt} w-20 text-right">${score.toFixed(2)} ${esc(band || '')}</span>
+  </div>`;
+}
+
+function rowHtml(s) {
+  const label = s.label
+    ? `<span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-500">${esc(s.label)}${s.variant ? ' · ' + esc(s.variant) : ''}</span>`
+    : '<span class="text-slate-300">—</span>';
+  return `<tr class="border-b border-slate-100 hover:bg-slate-50">
+    <td class="px-4 py-2.5 font-mono text-xs text-slate-600" title="${esc(s.id)}">${esc(String(s.id).slice(0, 8))}</td>
+    <td class="px-4 py-2.5">${s.username ? esc(s.username) : '<span class="text-slate-400">anon</span>'}</td>
+    <td class="px-4 py-2.5 text-slate-500" title="${esc(s.started_at)}">${fmtTime(s.started_at)}</td>
+    <td class="px-4 py-2.5 text-slate-500" title="${esc(s.pages || '')}">${s.page_count ?? 0}</td>
+    <td class="px-4 py-2.5 text-right text-slate-500">${s.event_count ?? 0}</td>
+    <td class="px-4 py-2.5">${scoreCell(s.risk_score, s.risk_band)}</td>
+    <td class="px-4 py-2.5">${decisionBadge(s.last_decision)}</td>
+    <td class="px-4 py-2.5">${label}</td>
+  </tr>`;
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/sessions');
+    if (!r.ok) return;
+    const {sessions} = await r.json();
+    tbody.innerHTML = sessions.length
+      ? sessions.map(rowHtml).join('')
+      : '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No sessions yet — open the bank portal to generate traffic.</td></tr>';
+  } catch (e) { /* keep last good render */ }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+{% endblock %}

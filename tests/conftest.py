@@ -25,6 +25,7 @@ os.environ.setdefault("ALLOW_DATA_COLLECTION", "true")
 os.environ.setdefault("INTERNAL_TOKEN", "test-internal")
 os.environ.setdefault("PUBSUB_PUSH_TOKEN", "test-push")
 os.environ.setdefault("SCORER_URL", "http://scorer.test")
+os.environ.setdefault("CONSOLE_PASSWORD", "test-console")
 
 
 @pytest.fixture(scope="session")
@@ -97,6 +98,36 @@ def scorer_client():
         yield c
 
 
+def load_console_app():
+    """Import services/console/app under the name `console_app` (the portal
+    package already owns the plain name `app`)."""
+    import importlib.util
+
+    if "console_app.main" in sys.modules:
+        return sys.modules["console_app.main"].app
+    pkg_dir = ROOT / "services" / "console" / "app"
+    spec = importlib.util.spec_from_file_location(
+        "console_app",
+        pkg_dir / "__init__.py",
+        submodule_search_locations=[str(pkg_dir)],
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["console_app"] = module
+    spec.loader.exec_module(module)
+    import console_app.main  # noqa: F401
+
+    return sys.modules["console_app.main"].app
+
+
+@pytest.fixture()
+def console_client():
+    """In-process console app sharing the test database."""
+    from fastapi.testclient import TestClient
+
+    with TestClient(load_console_app()) as c:
+        yield c
+
+
 @pytest.fixture()
 def stack(client, scorer_client, monkeypatch):
     """Portal wired to the in-process scorer: its httpx calls are routed
@@ -133,6 +164,7 @@ def stack(client, scorer_client, monkeypatch):
     return client
 
 
-# Load the scorer package at collection time so test modules can
-# `import scorer_app.model` directly.
+# Load the scorer and console packages at collection time so test modules
+# can `import scorer_app.*` / `console_app.*` directly.
 load_scorer_app()
+load_console_app()

@@ -14,9 +14,9 @@
 3. Optional if time: a "Live demo" toggle on `/` that highlights new cases with a subtle animation and a sound-free toast.
 
 ## Acceptance criteria
-- [ ] With the local stack and `LLM_MODE=mock`, a bot-like session that gets `block` appears in `/cases` within ~3 s with an explanation.
-- [ ] With `LLM_MODE=apikey` and a real key, the explanation is valid JSON matching the schema and cites real feature values.
-- [ ] Mouse-path replay works for both a human session and a scripted session (the scripted one visibly shows straight jumps / no path).
-- [ ] `/log` lists every decision made during a local test run, filters work, and CSV export downloads the same rows.
-- [ ] `/benchmark` renders a sample `tests/fixtures/benchmark.sample.json`.
-- [ ] `pytest` passes (explainer mock mode, console auth, API endpoints).
+- [x] With the local stack and `LLM_MODE=mock`, a bot-like session that gets `block` appears in `/cases` within ~3 s with an explanation. *(verified live on the compose stack: bot telemetry → `block` → CASE-0003 with a mock explanation visible in ~2 s)*
+- [ ] With `LLM_MODE=apikey` and a real key, the explanation is valid JSON matching the schema and cites real feature values. *(implemented per §7.4 with `response_mime_type` + response schema, but no real Gemini key is available in this environment — see REVIEW_NOTES)*
+- [x] Mouse-path replay works for both a human session and a scripted session (the scripted one visibly shows straight jumps / no path). *(verified via the events API + canvas code: scripted session draws a single straight segment; a page with no moves shows a "no mouse movement" note plus click dots)*
+- [x] `/log` lists every decision made during a local test run, filters work, and CSV export downloads the same rows. *(verified live: decision/band/user filters + `/log.csv` returns identical row counts)*
+- [x] `/benchmark` renders a sample `tests/fixtures/benchmark.sample.json`. *(verified live + `test_benchmark_page`)*
+- [x] `pytest` passes (explainer mock mode, console auth, API endpoints). *(90 passed, 2 skipped — the known Windows xgboost skips)*

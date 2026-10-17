@@ -193,6 +193,94 @@ Result: 64 tests pass. Ready to merge.
 
 ---
 
+## feat/d5-console
+
+**Built:** analyst console + Gemini explainer per SPEC §7.4–§7.5.
+
+- `services/scorer/app/explain.py` — `generate_explanation(case_id, scorer)`:
+  rebuilds the §7.4 input (action + context, score, band, top reasons
+  recomputed via `scorer.score()` on the stored feature snapshot — exact for
+  rules and XGBoost, compact fingerprint summary, per-feature human
+  median/p25/p75 from `model_meta.json`, else static `HUMAN_REFERENCE`
+  defaults). `LLM_MODE=mock` returns deterministic schema-shaped JSON built
+  from the top reasons; `apikey`/`vertex` call `google-genai` with
+  `response_mime_type="application/json"` + a response schema. Every failure
+  is stored as `{"error": ...}` on the case and never raises into the
+  decision path. Wired as the post-case `BackgroundTasks` task and behind
+  `POST /v1/cases/{id}/explain` (404 unknown case; the D2 501 stub is gone).
+- `services/console/` — FastAPI + Jinja + Tailwind/Chart.js CDN, password
+  login (`CONSOLE_PASSWORD`, HMAC-signed `hg_console` cookie; every page/API
+  gated by middleware). Pages:
+  - `/` live sessions, auto-refresh 3 s via `/api/sessions` — short id, user,
+    started, page count, events, score bar with band text, last decision,
+    grey label tag when a `session_labels` row exists.
+  - `/cases` (open first) + `/cases/{id}` — decision banner, score gauge
+    over the allow/block thresholds, Gemini verdict/confidence/summary/
+    evidence/recommended action/next steps (or the stored `{"error"}` plus
+    raw reasons), Regenerate button (proxies to the scorer with
+    `X-HG-Internal`), top-reasons bar chart, fingerprint table, canvas
+    mouse-path replay (per-page select, scaled to recorded `inner_w` ×
+    `inner_h`, progressive path on Play, click dots, key/submit ticks
+    underneath), event timeline, Confirm fraud / False positive buttons
+    (`cases.status` + `reviewed_at`).
+  - `/log` detection log — every decision newest-first (auto-refresh 3 s)
+    with session link, user, action, amount, score, band, model, latency,
+    top-3 reason chips; filters decision/band/user/time range; `/log.csv`
+    exports the same filtered rows; each row expands to a lazily-fetched
+    event timeline (`/api/decisions/{id}/timeline`).
+  - `/benchmark` — renders `BENCHMARK_URI` (local path or `gs://`) per the
+    D6 schema: metric cards, per-model table, grouped per-variant detection
+    bars, ROC curves, early-detection lines, latency p50/p95, held-out
+    variant card, top features. Missing file → "run ml/benchmark.py".
+- Plumbing: console requirements += jinja2, python-multipart, httpx,
+  google-cloud-storage; scorer += google-genai; compose gives the console
+  `SCORER_URL`/`INTERNAL_TOKEN` and mounts `./data` so the default
+  `BENCHMARK_URI=./data/benchmark.json` resolves inside the container.
+  `tests/fixtures/benchmark.sample.json` follows the D6 schema.
+
+**How to run:** `docker compose up --build` → console http://localhost:8082
+(password `change-me`). Any portal login/transfer traffic appears under
+"Live sessions"; a `step_up`/`block` decision opens a case with a mock
+explanation in ~1 s. Tests: `pytest` — **90 passed, 2 skipped** (the known
+Windows xgboost skips).
+
+**Verified live on the compose stack:** healthchecks, login gate (303 to
+/login, 401 on /api/*), bot telemetry → `/v1/decide` → `block` →
+`CASE-0003` open with `likely_ai_agent` mock explanation citing
+`fp_webdriver`; `/cases`, `/cases/3`, `/api/sessions`,
+`/api/sessions/{id}/events`, `/api/decisions` (+ filters), `/log.csv`,
+regenerate-explanation round-trip through the console → scorer, and
+status update → `confirmed_fraud` all verified with curl.
+
+**Deviations from spec:**
+- `decisions` stores no request context and no `top_reasons` (schema §8.1
+  unchanged). The explainer reconstructs context from the session's latest
+  `transfers`/`loan_applications` row and recomputes reasons from the
+  stored feature snapshot via `scorer.score()` — identical to what the
+  decision used for both rules and XGBoost. The console's reasons chart
+  and `/log` reason chips use `score_rules` on stored features: exact for
+  `model_version='rules'`, an approximation if a trained model is active
+  (its SHAP-style reasons are not persisted).
+- Explainer "human reference ranges": reads `human_reference` /
+  `feature_reference` / `feature_stats` keys from `model_meta.json` (D6
+  writes per-feature median/p25/p75 — whichever key D6 emits should be one
+  of these, or add it); static `HUMAN_REFERENCE` medians cover the
+  rule-relevant features when no model is loaded.
+
+**Known gaps:**
+- The `LLM_MODE=apikey` path is implemented (`genai.Client(api_key=...)`,
+  JSON response schema, errors → `{"error"}`) but was not exercised with a
+  real Gemini key in this environment — the acceptance item is left
+  unticked. Mock mode covers the same storage/schema contract.
+- Mouse-path replay verified via the events API + code inspection; no
+  Playwright browser on this machine for a pixel check.
+- Optional "Live demo" toast/animation on `/` was not built (task marks it
+  optional).
+- `console.js` must load synchronously (it is, via a plain `<script>` in
+  base.html): inline page scripts call `hgMountReplay`/`hgRenderTimeline`
+  at parse time.
+---
+
 ## feat/d3-deploy
 
 **Built by Claude** — Google Cloud deployment, run from Cloud Shell (SPEC §13).
@@ -214,3 +302,17 @@ Result: 64 tests pass. Ready to merge.
 **Verified:** `bash -n` + `shellcheck -x` clean on all four scripts; no hardcoded project ids/URLs/secrets; `bq_schema.py` column counts correct (session_features 50, training_features 51); the cloud `DATABASE_URL` builder and the unchanged local default both check out; full suite **72 passed**. The scripts themselves can only be run for real in Cloud Shell (they call `gcloud`/`bq`), so they are validated by lint + review, not executed here.
 
 **Depends on D2** (merged). Branched off `main` after D2+D4.
+
+### Review: feat/d5-console (Claude)
+
+Reviewed and smoke-tested live (portal + scorer + console, a real `script_fill` bot session generating a case). **No blocking issues — merged `main` (D3) in and it's ready.**
+
+Checks that passed:
+- **Auth** — console is gated by an HMAC-of-`CONSOLE_PASSWORD` signed cookie, constant-time compared; unauth → 303 (pages) / 401 (`/api/*`); wrong password → 401; cookie is `HttpOnly`, `SameSite=Lax` (mitigates CSRF on the state-changing POSTs), `Secure` on `ENV=cloud`.
+- **SQL** — every query in `queries.py` is parameterised; log filters are whitelisted (`decision`/`band` against fixed sets, `user`/timestamps bound).
+- **Scorer proxy** — `/cases/{id}/explain` only forwards a validated int case id with the `X-HG-Internal` token; scorer failure is caught and never breaks the page.
+- **Explainer** — `generate_explanation` never raises (errors stored as `{"error": …}`); the decision path only queues a background task, so decisions never block on the LLM; mock mode deterministic; Gemini path uses a response schema. The context-poll `time.sleep` runs in a threadpool background task, not the event loop.
+- **Privacy** — the replay/event API returns only the stored telemetry (coordinates, timings, `key_class`, `value_length`); a forbidden-key scan of the replay payloads came back clean.
+- **Live** — login, live sessions, `/cases`, case detail (explanation card + mouse-path replay canvas + fingerprint + timeline), `/log` + filters, `/log.csv` (real rows incl. top reasons), regenerate round-trip, status update, and `/benchmark` (renders `tests/fixtures/benchmark.sample.json`) all work. Full suite **92 passed**.
+
+Open item (expected): `LLM_MODE=apikey` with a real key is implemented but unverifiable without a key — confirm at deploy time.
