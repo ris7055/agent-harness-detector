@@ -55,6 +55,17 @@ for role in roles/cloudsql.client roles/pubsub.publisher roles/bigquery.dataEdit
     --member "serviceAccount:$RUN_SA_EMAIL" --role "$role" --condition=None >/dev/null
 done
 
+# --- Cloud Build's builder account --------------------------------------------
+# New projects no longer auto-grant roles to the default Compute Engine service
+# account, which Cloud Build now runs builds as. Without this, `gcloud builds
+# submit` fails with "compute@developer... does not have storage.objects.get".
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+log "Granting Cloud Build roles to $BUILD_SA..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member "serviceAccount:$BUILD_SA" --role roles/cloudbuild.builds.builder \
+  --condition=None >/dev/null
+
 # --- Cloud Storage bucket ----------------------------------------------------
 if gcloud storage buckets describe "gs://$BUCKET" >/dev/null 2>&1; then
   skip "bucket gs://$BUCKET"
