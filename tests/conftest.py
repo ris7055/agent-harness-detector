@@ -22,6 +22,9 @@ sys.path.insert(0, str(ROOT / "services" / "portal"))
 os.environ.setdefault("SESSION_SECRET", "test-secret")
 os.environ.setdefault("IP_HASH_SALT", "test-salt")
 os.environ.setdefault("ALLOW_DATA_COLLECTION", "true")
+os.environ.setdefault("INTERNAL_TOKEN", "test-internal")
+os.environ.setdefault("PUBSUB_PUSH_TOKEN", "test-push")
+os.environ.setdefault("SCORER_URL", "http://scorer.test")
 
 
 @pytest.fixture(scope="session")
@@ -62,3 +65,74 @@ def client():
 
     with TestClient(app) as c:
         yield c
+
+
+def load_scorer_app():
+    """Import services/scorer/app under the name `scorer_app` (the portal
+    package already owns the plain name `app`)."""
+    import importlib.util
+
+    if "scorer_app.main" in sys.modules:
+        return sys.modules["scorer_app.main"].app
+    pkg_dir = ROOT / "services" / "scorer" / "app"
+    spec = importlib.util.spec_from_file_location(
+        "scorer_app",
+        pkg_dir / "__init__.py",
+        submodule_search_locations=[str(pkg_dir)],
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["scorer_app"] = module
+    spec.loader.exec_module(module)
+    import scorer_app.main  # noqa: F401
+
+    return sys.modules["scorer_app.main"].app
+
+
+@pytest.fixture()
+def scorer_client():
+    """In-process scorer app sharing the test database."""
+    from fastapi.testclient import TestClient
+
+    with TestClient(load_scorer_app()) as c:
+        yield c
+
+
+@pytest.fixture()
+def stack(client, scorer_client, monkeypatch):
+    """Portal wired to the in-process scorer: its httpx calls are routed
+    into the scorer TestClient (same test DB, real HTTP path)."""
+    import types
+    from urllib.parse import urlparse
+
+    from app import decide as decide_mod
+    from app import main as portal_main
+
+    def _route(method, url, **kw):
+        kw.pop("timeout", None)  # TestClient doesn't support it; shim is instant
+        return scorer_client.request(method, urlparse(url).path, **kw)
+
+    class _AsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, **kw):
+            return _route("POST", url, **kw)
+
+    shim = types.SimpleNamespace(
+        AsyncClient=_AsyncClient,
+        post=lambda url, **kw: _route("POST", url, **kw),
+    )
+    monkeypatch.setattr(decide_mod, "httpx", shim)
+    monkeypatch.setattr(portal_main, "httpx", shim)
+    return client
+
+
+# Load the scorer package at collection time so test modules can
+# `import scorer_app.model` directly.
+load_scorer_app()

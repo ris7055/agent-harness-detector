@@ -74,8 +74,11 @@ def test_login_and_dashboard(client):
     assert row._mapping["user_id"] is not None and row._mapping["ip_hash"]
 
 
-def test_transfer_allow_end_to_end(client, monkeypatch):
+def test_transfer_allow_end_to_end(stack, monkeypatch):
+    # `stack` bridges portal -> the real in-process scorer (rules baseline;
+    # a session with no telemetry scores ~0 -> allow).
     monkeypatch.delenv("FORCE_DECISION", raising=False)
+    client = stack
     _login(client)
     before = _balance(client)
 
@@ -101,6 +104,13 @@ def test_transfer_allow_end_to_end(client, monkeypatch):
                  " WHERE to_account='8812 0045 3301' ORDER BY id DESC LIMIT 1")
         ).first()
         assert t._mapping["status"] == "completed" and t._mapping["amount_cents"] == 12050
+        # exactly one decisions row for this confirm — the scorer's, not a
+        # duplicate written by the portal
+        n = s.execute(
+            text("SELECT count(*) FROM decisions WHERE session_id=:i"),
+            {"i": uuid.UUID(client.cookies.get("hg_sid"))},
+        ).scalar_one()
+    assert n == 1
 
 
 def test_transfer_step_up_otp(client, monkeypatch):

@@ -13,9 +13,9 @@
 7. Portal: replace the D1 `decide()` stub with a call to scorer `/v1/decide` (2 s timeout, fail-open to `step_up`). Keep `FORCE_DECISION` working as a demo override when set.
 
 ## Acceptance criteria
-- [ ] Browsing the portal locally produces rows in `session_events` within ~2 s; no key or input values anywhere in the DB (add a test that scans stored payloads for forbidden keys `key`, `value`, `password`).
-- [ ] `sessions.risk_score` updates while browsing (visible via `GET /v1/sessions/{id}/score`).
-- [ ] A transfer by a normal human click-through is usually `allow` under rules scoring; a quick scripted check (`tests/` using httpx to post a bot-like batch then decide) returns `step_up` or `block` and creates a `cases` row.
-- [ ] `/v1/decide` p95 latency < 300 ms locally excluding the seq wait (log it in `decisions.latency_ms`).
-- [ ] `EVENT_TRANSPORT=pubsub` code path exists and is unit-tested with a mocked publisher; `/pubsub/events` decodes a sample push envelope.
-- [ ] `pytest` passes; README updated.
+- [x] Browsing the portal locally produces rows in `session_events` within ~2 s; no key or input values anywhere in the DB (add a test that scans stored payloads for forbidden keys `key`, `value`, `password`).
+- [x] `sessions.risk_score` updates while browsing (visible via `GET /v1/sessions/{id}/score`).
+- [x] A transfer by a normal human click-through is usually `allow` under rules scoring; a quick scripted check (`tests/` using httpx to post a bot-like batch then decide) returns `step_up` or `block` and creates a `cases` row.
+- [x] `/v1/decide` p95 latency < 300 ms locally excluding the seq wait (log it in `decisions.latency_ms`).
+- [x] `EVENT_TRANSPORT=pubsub` code path exists and is unit-tested with a mocked publisher; `/pubsub/events` decodes a sample push envelope.
+- [x] `pytest` passes; README updated.

@@ -96,7 +96,9 @@ def _current_user(request: Request) -> dict | None:
 class SessionMiddleware(BaseHTTPMiddleware):
     """Assigns hg_sid (UUID4) cookie + sessions row with salted IP hash."""
 
-    SKIP = {"/healthz"}
+    # /api/events fires every 2 s per browser; the scorer updates
+    # sessions.last_seen itself, so the portal must not upsert there.
+    SKIP = {"/healthz", "/api/events"}
 
     async def dispatch(self, request: Request, call_next):
         raw = request.cookies.get("hg_sid")
@@ -133,9 +135,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bank Seroja (HarnessGuard demo portal)", lifespan=lifespan)
 app.add_middleware(SessionMiddleware)
-_static = BASE_DIR / "static"
-if _static.exists():
-    app.mount("/static", StaticFiles(directory=str(_static)), name="static")
+# services/portal/static (next to app/, not inside it). Mounted
+# unconditionally: a missing folder must fail loudly at startup, because
+# without collector.js the detector silently receives no telemetry.
+STATIC_DIR = BASE_DIR.parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 def _login_redirect() -> RedirectResponse:
@@ -270,11 +274,17 @@ def transfer_confirm(request: Request,
              "new_payee": new_payee},
         )
         decision = result["decision"]
-        decision_id = models.record_decision(
-            s, sid, "transfer", decision, score=result.get("score"),
-            band=result.get("band"), model_version=result.get("model_version"),
-            latency_ms=result.get("latency_ms"),
-        )
+        case_id = result.get("case_id")
+        decision_id = None
+        if result.get("source") != "scorer":
+            # Scorer already wrote decisions/cases when it answered; keep a
+            # local audit row only for the forced / fail-open paths.
+            decision_id = models.record_decision(
+                s, sid, "transfer", decision, score=result.get("score"),
+                band=result.get("band"),
+                model_version=result.get("model_version"),
+                latency_ms=result.get("latency_ms"),
+            )
 
         if decision == "allow":
             models.create_transfer(
@@ -306,8 +316,11 @@ def transfer_confirm(request: Request,
             s, account["id"], sid, to_name, to_bank, to_account,
             amount_cents, reference, "blocked",
         )
-        case_id = models.create_case(s, sid, decision_id, "transfer", "block",
-                                     score=result.get("score"))
+        if case_id is None:
+            case_id = models.create_case(
+                s, sid, decision_id, "transfer", "block",
+                score=result.get("score"),
+            )
         s.commit()
         return _render(request, "result.html", kind="blocked",
                        title="Transfer held for review",
@@ -444,11 +457,15 @@ def loan_apply(request: Request,
         result = decide("loan_apply", sid, hg_last_seq,
                         {"amount_cents": amount_cents})
         decision = result["decision"]
-        decision_id = models.record_decision(
-            s, sid, "loan_apply", decision, score=result.get("score"),
-            band=result.get("band"), model_version=result.get("model_version"),
-            latency_ms=result.get("latency_ms"),
-        )
+        case_id = result.get("case_id")
+        decision_id = None
+        if result.get("source") != "scorer":
+            decision_id = models.record_decision(
+                s, sid, "loan_apply", decision, score=result.get("score"),
+                band=result.get("band"),
+                model_version=result.get("model_version"),
+                latency_ms=result.get("latency_ms"),
+            )
         status = {"allow": "approved", "step_up": "pending_otp",
                   "block": "blocked"}[decision]
         loan_id = s.execute(
@@ -481,8 +498,11 @@ def loan_apply(request: Request,
                            otp_code=otp,
                            message="For your security we sent a 6-digit code "
                                    "to your registered mobile number.")
-        case_id = models.create_case(s, sid, decision_id, "loan_apply", "block",
-                                     score=result.get("score"))
+        if case_id is None:
+            case_id = models.create_case(
+                s, sid, decision_id, "loan_apply", "block",
+                score=result.get("score"),
+            )
         s.commit()
         return _render(request, "result.html", kind="blocked",
                        title="Application held for review",
@@ -493,21 +513,55 @@ def loan_apply(request: Request,
 
 # ----------------------------------------------------------------- telemetry
 
+_publisher = None
+
+
+def _get_publisher():
+    """Lazy Pub/Sub publisher (only created when EVENT_TRANSPORT=pubsub)."""
+    global _publisher
+    if _publisher is None:
+        from google.cloud import pubsub_v1
+
+        _publisher = pubsub_v1.PublisherClient()
+    return _publisher
+
+
 @app.post("/api/events")
 async def api_events(request: Request, batch: EventBatch):
-    """Validate telemetry batches (SPEC 5.3). Forwarding to the scorer/Pub/Sub
-    is wired by D2; for now batches are accepted and dropped."""
-    transport = get_settings().event_transport
-    if transport == "http" and get_settings().scorer_url:
-        try:
+    """Validate telemetry batches and forward per EVENT_TRANSPORT (SPEC 5.3).
+    Always answers 204 fast; a scorer/publish failure must never break a page."""
+    settings = get_settings()
+    # A browser may only report telemetry for its own session: otherwise a
+    # client could inject events into (and poison the score of) another
+    # session. Answer 204 anyway so the collector does not retry forever.
+    try:
+        cookie_sid = uuid.UUID(request.cookies.get("hg_sid") or "")
+    except ValueError:
+        cookie_sid = None
+    if cookie_sid is None or cookie_sid != batch.session_id:
+        log.info("dropping event batch: session_id does not match hg_sid cookie")
+        return Response(status_code=204)
+    try:
+        if settings.event_transport == "pubsub":
+            publisher = _get_publisher()
+            topic = publisher.topic_path(settings.gcp_project, settings.pubsub_topic)
+            publisher.publish(
+                topic,
+                batch.model_dump_json().encode("utf-8"),
+                session_id=str(batch.session_id),
+            )
+        elif settings.scorer_url:
             async with httpx.AsyncClient(timeout=1.5) as client:
                 await client.post(
-                    f"{get_settings().scorer_url.rstrip('/')}/v1/events",
+                    f"{settings.scorer_url.rstrip('/')}/v1/events",
                     content=batch.model_dump_json(),
-                    headers={"Content-Type": "application/json"},
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-HG-Internal": settings.internal_token,
+                    },
                 )
-        except Exception:
-            log.debug("scorer /v1/events unreachable; dropping batch")
+    except Exception:  # noqa: BLE001 - telemetry is best-effort
+        log.debug("event forward failed; dropping batch", exc_info=True)
     return Response(status_code=204)
 
 

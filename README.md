@@ -26,9 +26,17 @@ docker compose up --build       # db + portal:8080 + scorer:8081 + console:8082
 
 - **Portal:** http://localhost:8080 — sign in as `daniel` / `Seroja@2026`
   (also `aisyah`, `meiling`, `ravi`, `demo` — same password, demo only)
-- **Scorer:** http://localhost:8081 (`/healthz` stub for now)
+- **Scorer:** http://localhost:8081 — ingest + live risk score + `/v1/decide`
+  (`/v1/*` needs the `X-HG-Internal: $INTERNAL_TOKEN` header; `/healthz` is open).
+  Runs on the rules baseline until `MODEL_URI` points at a trained model.
 - **Console:** http://localhost:8082 (`/healthz` stub for now)
 - **Data collection mode:** http://localhost:8080/collect (set `ALLOW_DATA_COLLECTION=false` to disable)
+
+Every portal page loads `static/collector.js`, which streams privacy-preserving
+telemetry (timings, key classes, value lengths — never typed values) to the
+scorer every 2 s. `GET /v1/sessions/{id}/score` shows the live score; transfers
+and loan applications go through `/v1/decide` (allow → done, step_up → OTP,
+block → case). Local decision snapshots land in `data/analytics/session_features.jsonl`.
 
 Force a decision path without the scorer (demo/testing only):
 

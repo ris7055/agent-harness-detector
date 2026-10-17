@@ -1,5 +1,10 @@
 FROM python:3.11-slim
 
+# libgomp1 is required by xgboost (not in the slim image)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Shared core package (build context = repo root)

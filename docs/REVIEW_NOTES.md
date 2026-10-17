@@ -78,3 +78,97 @@ Reviewed by Claude against SPEC/AGENTS. Overall solid: structure matches §3, al
 - **SHOULD 5:** fixed. `new_payee` is computed against the user's saved payees (spaces ignored). Test: `test_new_payee_flag`.
 
 Result: 26 tests pass. Ready to merge.
+
+---
+
+## feat/d2-scorer
+
+**Built:** live behavioural pipeline per SPEC §5–§7.
+
+- `services/portal/static/collector.js` (~270 lines, no deps): all §5.2 event
+  types (fingerprint, page, mousemove @50 ms throttle, click, keydown/keyup with
+  `key_class` only, input with `value_length` only, paste, focus/blur, scroll,
+  visibility, submit); `seq` in `sessionStorage`; 2 s batching; `sendBeacon` on
+  pagehide/hidden; awaited flush (≤800 ms) before every form submit, stamping
+  `hg_last_seq`. Wired via `base.html` meta tags + form ids on all forms.
+- `core/harnessguard_core/features.py`: `FEATURE_NAMES` (44) +
+  `compute_features(events, until_seq=None)` — the single implementation for
+  every §6 feature; missing values → `-1`; pure and deterministic.
+- `core/harnessguard_core/rules.py`: weighted-signal baseline →
+  `(score, top_reasons)` + `band_for_score`.
+- `core/harnessguard_core/analytics.py`: `AnalyticsSink` with `JsonlSink`
+  (`data/analytics/session_features.jsonl`) and `BigQuerySink`
+  (`insert_rows_json`); selected by `ANALYTICS_SINK`; never raises into
+  handlers.
+- Scorer service (`services/scorer/app/`): `/v1/events` (idempotent upsert by
+  `(session_id, seq)`, `sessions.last_seen/event_count` + debounced rescore →
+  `risk_score`/`risk_band`), `/pubsub/events` (`?token=` + push-envelope
+  decode), `/v1/decide` (≤1.5 s seq wait @100 ms, thresholds +
+  ≥RM 5000 & score ≥ 0.35 → min `step_up` context rule, `decisions` + `cases`
+  rows, analytics snapshot, `top_reasons`), `/v1/sessions/{id}/score`,
+  `/v1/cases/{id}/explain` → 501, `/healthz`. `X-HG-Internal` on `/v1/*`.
+  Model loader (`model.py`): empty `MODEL_URI` → rules; local dir / local
+  `latest.json` / `gs://` pointer; feature-name mismatch → loud log + rules.
+- Portal: real `decide()` → `POST /v1/decide` (2 s timeout, `X-HG-Internal`,
+  fail-open `step_up`, `FORCE_DECISION` still wins); `/api/events` forwards per
+  `EVENT_TRANSPORT` (http with auth header, or lazy Pub/Sub publisher with
+  `session_id` attribute); middleware skips `ensure_session` on `/api/events`
+  per the D1 note.
+
+**How to run:** `docker compose up --build` → portal :8080, scorer :8081
+(`curl -H "X-HG-Internal: $INTERNAL_TOKEN" localhost:8081/v1/sessions/<id>/score`).
+Tests: `pytest` — 60 passed, 1 skipped (see deviations).
+
+**Verified live against the compose stack:**
+- Login → batched `POST /api/events` → 32 `session_events` rows in <2 s;
+  `sessions.risk_score=0.259`/`green` updated; score endpoint returns it.
+- Human-like telemetry + RM 25.50 transfer → `allow` → success page
+  (`decisions.latency_ms=1`, `model_version=rules`).
+- Bot telemetry (webdriver=true, no-premove centre clicks, programmatic inputs)
+  + RM 500 transfer → `step_up` (score 0.817, amber) → OTP page; `cases` row
+  created. `top_reasons`: `fp_webdriver`, `input_programmatic_ratio`,
+  `click_no_premove_ratio`.
+- Privacy: scanned all stored `session_events.data` payloads — no `key`,
+  `value`, `password`, `text` or `char` keys; `data/analytics/` is gitignored.
+- `/v1/*` returns 401 without the internal header; `/pubsub/events` 401/403
+  without a valid `?token=`.
+
+**Deviations from spec:**
+- `xgboost` pinned `>=2.0,<2.1`: xgboost ≥2.1 added a hard ~350 MB
+  `nvidia-nccl-cu12` wheel dependency on Linux even for CPU-only inference.
+  D6 training should save models with the 2.0.x API/format.
+- Scorer image installs `libgomp1` (xgboost needs OpenMP; `python:3.11-slim`
+  doesn't ship it).
+- Portal writes `decisions`/`cases` rows only for `FORCE_DECISION` and
+  fail-open paths — when the scorer answered, it already wrote them; the
+  portal writing again would duplicate rows.
+- The real XGBoost round-trip test skips on this Windows host (installed
+  `xgboost.dll` can't load its OpenMP runtime); it runs in the Linux image.
+
+**Known gaps:**
+- `/v1/cases/{id}/explain` is a 501 stub — D3 implements the LLM explainer.
+- `BigQuerySink` and `gs://` model loading are unit-tested with fakes only;
+  no GCP credentials exist locally (per spec).
+- `EVENT_TRANSPORT=pubsub` is covered by mocked-publisher tests only.
+- Click events carry `target_rect` so `click_center_offset_*` is computed;
+  events without element bounds (e.g. document-level clicks) contribute `-1`.
+
+## Review: feat/d2-scorer
+
+Reviewed by Claude, including a real-browser end-to-end run (Playwright Chromium against portal and scorer). The feature engineering, rules baseline, scorer API and privacy handling are solid. Four bugs were found; all are fixed on this branch.
+
+**MUST 1 (fixed): `collector.js` was never served.** `base.html` loads `/static/collector.js`, but the portal mounted `services/portal/app/static/` while the file lives in `services/portal/static/`. The mount was also conditional, so it failed silently: **real browsers sent zero events** and every decision was scored on an empty session (score 0, always `allow`). The D2 live check posted synthetic batches with curl, so it never exercised the browser path. Fix: mount `BASE_DIR.parent / "static"` unconditionally. Test: `test_collector_js_is_served`.
+
+**MUST 2 (fixed): cross-session event injection.** `/api/events` accepted any `session_id` in the batch, so a client could push events into another user's session (or invent sessions). Fix: drop batches whose `session_id` differs from the `hg_sid` cookie, still answering 204 so the collector does not retry forever. Test: `test_api_events_rejects_other_sessions`.
+
+**MUST 3 (fixed): model scoring crashed with named features.** `Scorer.score` built an unnamed `DMatrix`. A booster trained from a DataFrame or named DMatrix (what D6 will produce) raises on unnamed input, so `/v1/decide` would return 500 for every request and the portal would fail open to OTP for everyone. Fix: pass `feature_names`, and fall back to rules for that request if the model errors. The existing round-trip test never ran (it was skipped on Windows and also called the non-existent `np.random.Random`). It is now fixed to use the native xgboost API (no scikit-learn in the scorer image), and `test_unnamed_model_also_scores` was added.
+
+**MUST 4 (fixed): collector sequence numbers.**
+- `hg_seq` lived in `sessionStorage` and was not keyed by session, so a second tab restarted at seq 1 and the server's `ON CONFLICT (session_id, seq) DO NOTHING` silently discarded that tab's events. It is now `localStorage["hg_seq:<session>"]`, shared by all tabs of the session and re-read on every increment.
+- On submit, `hg_last_seq` was set from *acknowledged* events only, and the flush was skipped if a periodic batch was in flight. The decision could therefore be taken without the latest keystrokes and the submit event. Now the highest pushed seq is stamped and a forced flush is sent; the scorer already waits up to 1.5 s for it. Verified in the browser run: every decision covers all events including the submit.
+
+**Notes (no action):**
+- A Playwright session with humanised mouse and typing still scores about 0.75 (step-up) because `navigator.webdriver` is true. That is correct behaviour; the human path must be validated by real people in normal browsers (the `/collect` data collection).
+- `decide()` is called while the portal holds a DB session (up to 2 s). This is acceptable at prototype scale.
+
+Result: 64 tests pass. Ready to merge.
