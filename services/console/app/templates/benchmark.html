@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Benchmark — HarnessGuard Console{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold text-slate-900">Benchmark</h1>
+  <span class="text-xs text-slate-400">{{ benchmark_uri }}</span>
+</div>
+
+{% if not benchmark %}
+<div class="bg-white rounded-xl border border-slate-200 p-10 text-center">
+  <p class="text-slate-500 mb-1">No benchmark yet — run <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">ml/benchmark.py</code></p>
+  <p class="text-xs text-slate-400">looked for <span class="font-mono">{{ benchmark_uri }}</span></p>
+</div>
+{% else %}
+{% set ds = benchmark.dataset or {} %}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-slate-200 p-4">
+    <div class="text-2xl font-bold text-slate-900">{{ ds.sessions or 0 }}</div>
+    <div class="text-xs text-slate-500">sessions · {{ ds.train or 0 }} train / {{ ds.test or 0 }} test</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4">
+    <div class="text-2xl font-bold text-slate-900">{{ ds.human or 0 }} / {{ ds.agent or 0 }}</div>
+    <div class="text-xs text-slate-500">human / agent sessions</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4">
+    <div class="text-2xl font-bold text-slate-900">{{ (benchmark.latency_ms or {}).p50 or '—' }} / {{ (benchmark.latency_ms or {}).p95 or '—' }} ms</div>
+    <div class="text-xs text-slate-500">decision latency p50 / p95{% if (benchmark.latency_ms or {}).n %} · n={{ benchmark.latency_ms.n }}{% endif %}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4">
+    <div class="text-2xl font-bold text-slate-900">{{ (benchmark.generated_at or '')[:10] or '—' }}</div>
+    <div class="text-xs text-slate-500">generated</div>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+  <h2 class="font-semibold text-slate-900 mb-3">Model comparison</h2>
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+        <th class="py-2 pr-4">Model</th>
+        <th class="py-2 pr-4 text-right">Precision</th>
+        <th class="py-2 pr-4 text-right">Recall</th>
+        <th class="py-2 pr-4 text-right">F1</th>
+        <th class="py-2 pr-4 text-right">ROC-AUC</th>
+        <th class="py-2 text-right">Human FPR</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in benchmark.models or [] %}
+      <tr class="border-b border-slate-100">
+        <td class="py-2 pr-4 font-medium text-slate-800">{{ m.name }}</td>
+        <td class="py-2 pr-4 text-right">{{ '%.3f' % m.precision if m.precision is not none else '—' }}</td>
+        <td class="py-2 pr-4 text-right">{{ '%.3f' % m.recall if m.recall is not none else '—' }}</td>
+        <td class="py-2 pr-4 text-right">{{ '%.3f' % m.f1 if m.f1 is not none else '—' }}</td>
+        <td class="py-2 pr-4 text-right">{{ '%.3f' % m.roc_auc if m.roc_auc is not none else '—' }}</td>
+        <td class="py-2 text-right {{ 'text-red-700 font-medium' if (m.human_fpr or 0) > 0.05 else '' }}">{{ '%.3f' % m.human_fpr if m.human_fpr is not none else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <div class="bg-white rounded-xl border border-slate-200 p-5">
+    <h2 class="font-semibold text-slate-900 mb-3">Detection rate by agent variant</h2>
+    <canvas id="variantChart" height="220"></canvas>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-5">
+    <h2 class="font-semibold text-slate-900 mb-3">ROC curves</h2>
+    <canvas id="rocChart" height="220"></canvas>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <div class="bg-white rounded-xl border border-slate-200 p-5">
+    <h2 class="font-semibold text-slate-900 mb-3">Early detection (F1 vs seconds of session observed)</h2>
+    <canvas id="earlyChart" height="200"></canvas>
+  </div>
+  <div class="space-y-6">
+    {% if benchmark.held_out_variant %}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-900 mb-2">Held-out variant generalisation</h2>
+      <p class="text-sm text-slate-600">
+        Trained without <span class="font-mono text-xs bg-slate-100 px-1 rounded">{{ benchmark.held_out_variant.variant }}</span>,
+        then tested on it — full model recall
+        <span class="font-semibold">{{ '%.3f' % benchmark.held_out_variant.xgb_full_recall }}</span>
+        vs fingerprint-only
+        <span class="font-semibold">{{ '%.3f' % benchmark.held_out_variant.xgb_fingerprint_recall }}</span>.
+      </p>
+    </div>
+    {% endif %}
+    {% if benchmark.top_features %}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-900 mb-2">Top features</h2>
+      <ul class="text-sm text-slate-700 space-y-1">
+        {% for f in benchmark.top_features[:8] %}
+        <li class="flex justify-between"><span class="font-mono text-xs">{{ f.feature }}</span><span>{{ '%.3f' % f.importance }}</span></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+const BM = {{ benchmark_json|safe }};
+const COLORS = ['#0f172a', '#2563eb', '#0891b2', '#7c3aed', '#db2777'];
+
+// per-variant detection: grouped bars, one dataset per model
+const variants = [...new Set((BM.models || []).flatMap(m => Object.keys(m.detection_by_variant || {})))];
+if (variants.length && document.getElementById('variantChart')) {
+  new Chart(document.getElementById('variantChart'), {
+    type: 'bar',
+    data: {
+      labels: variants,
+      datasets: (BM.models || []).map((m, i) => ({
+        label: m.name,
+        data: variants.map(v => (m.detection_by_variant || {})[v] ?? 0),
+        backgroundColor: COLORS[i % COLORS.length],
+      })),
+    },
+    options: {scales: {y: {min: 0, max: 1, title: {display: true, text: 'detection rate'}}},
+              plugins: {legend: {position: 'bottom'}}},
+  });
+}
+
+// ROC curves: one line per model
+const rocEl = document.getElementById('rocChart');
+if (rocEl) {
+  new Chart(rocEl, {
+    type: 'line',
+    data: {
+      datasets: (BM.models || []).map((m, i) => ({
+        label: m.name,
+        data: ((m.roc || {}).fpr || []).map((x, j) => ({x, y: (m.roc.tpr || [])[j]})),
+        borderColor: COLORS[i % COLORS.length],
+        backgroundColor: COLORS[i % COLORS.length],
+        pointRadius: 0, borderWidth: 2, tension: 0.1,
+      })).concat([{
+        label: 'chance', data: [{x: 0, y: 0}, {x: 1, y: 1}],
+        borderColor: '#cbd5e1', borderDash: [6, 6], pointRadius: 0, borderWidth: 1.5,
+      }]),
+    },
+    options: {scales: {x: {type: 'linear', min: 0, max: 1, title: {display: true, text: 'FPR'}},
+                       y: {min: 0, max: 1, title: {display: true, text: 'TPR'}}},
+              plugins: {legend: {position: 'bottom'}}},
+  });
+}
+
+// early detection curves
+const ed = BM.early_detection || {};
+const earlyEl = document.getElementById('earlyChart');
+if (earlyEl && (ed.seconds || []).length) {
+  const sets = [];
+  [['xgb_full_f1', 'full model'], ['rules_baseline_f1', 'rules baseline']]
+    .forEach(([key, label], i) => {
+      if ((ed[key] || []).length) sets.push({
+        label, data: ed.seconds.map((x, j) => ({x, y: ed[key][j]})),
+        borderColor: COLORS[i % COLORS.length], tension: 0.2, borderWidth: 2,
+      });
+    });
+  new Chart(earlyEl, {
+    type: 'line',
+    data: {datasets: sets},
+    options: {scales: {x: {type: 'linear', title: {display: true, text: 'seconds observed'}},
+                       y: {min: 0, max: 1, title: {display: true, text: 'F1'}}},
+              plugins: {legend: {position: 'bottom'}}},
+  });
+}
+</script>
+{% endif %}
+{% endblock %}

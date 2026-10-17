@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}CASE-{{ '%04d' % case.id }} — HarnessGuard Console{% endblock %}
+{% block content %}
+{% set dcls = {'allow': ('bg-emerald-50 border-emerald-300 text-emerald-900', 'ALLOWED'),
+               'step_up': ('bg-amber-50 border-amber-300 text-amber-900', 'STEPPED UP — OTP required'),
+               'block': ('bg-red-50 border-red-300 text-red-900', 'BLOCKED — held for review')} %}
+{% set bann = dcls.get(case.decision, ('bg-slate-50 border-slate-300 text-slate-800', case.decision or 'unknown')) %}
+
+<div class="flex items-center justify-between mb-4">
+  <div class="flex items-center gap-3">
+    <a href="/cases" class="text-sm text-slate-400 hover:text-slate-700">← Cases</a>
+    <h1 class="text-xl font-semibold text-slate-900 font-mono">CASE-{{ '%04d' % case.id }}</h1>
+    {% set scls = {'open': 'bg-sky-100 text-sky-800', 'confirmed_fraud': 'bg-red-100 text-red-800', 'false_positive': 'bg-slate-100 text-slate-600'} %}
+    <span class="px-2 py-0.5 rounded-full text-xs font-medium {{ scls.get(case.status, 'bg-slate-100') }}">{{ case.status.replace('_', ' ') }}</span>
+    {% if case.label %}
+    <span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-500">label: {{ case.label }}{{ ' · ' + case.variant if case.variant }}</span>
+    {% endif %}
+  </div>
+  {% if case.status == 'open' %}
+  <div class="flex gap-2">
+    <form method="post" action="/cases/{{ case.id }}/status">
+      <input type="hidden" name="status" value="confirmed_fraud">
+      <button class="rounded-md bg-red-600 text-white text-sm font-medium px-3 py-1.5 hover:bg-red-700">Confirm fraud</button>
+    </form>
+    <form method="post" action="/cases/{{ case.id }}/status">
+      <input type="hidden" name="status" value="false_positive">
+      <button class="rounded-md bg-white border border-slate-300 text-slate-700 text-sm font-medium px-3 py-1.5 hover:bg-slate-50">False positive</button>
+    </form>
+  </div>
+  {% else %}
+  <span class="text-xs text-slate-400">reviewed {{ case.reviewed_at.strftime('%Y-%m-%d %H:%M') if case.reviewed_at }}</span>
+  {% endif %}
+</div>
+
+<!-- decision banner + score gauge -->
+<div class="rounded-xl border-2 {{ bann[0] }} p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-lg font-bold">{{ bann[1] }}</div>
+      <div class="text-sm opacity-80">
+        {{ case.action or 'action' }} · session <span class="font-mono text-xs">{{ short_sid }}</span>
+        {% if case.username %}· user {{ case.username }}{% endif %}
+        · decided {{ case.decided_at.strftime('%Y-%m-%d %H:%M:%S') if case.decided_at else '—' }}
+      </div>
+    </div>
+    <div class="text-right text-sm">
+      <div>score <span class="text-2xl font-bold">{{ '%.2f' % case.score if case.score is not none else '—' }}</span></div>
+      <div class="opacity-70">{{ case.band or '—' }} band · {{ case.model_version or '—' }} · {{ case.latency_ms or 0 }} ms</div>
+    </div>
+  </div>
+  <div class="relative h-5 rounded-full overflow-hidden flex text-[10px] font-medium">
+    <div class="bg-emerald-200 text-emerald-800 flex items-center justify-center" style="width:50%">green</div>
+    <div class="bg-amber-200 text-amber-800 flex items-center justify-center" style="width:35%">amber</div>
+    <div class="bg-red-200 text-red-800 flex items-center justify-center" style="width:15%">red</div>
+    {% if case.score is not none %}
+    <div class="absolute top-0 bottom-0 w-1 bg-slate-900" style="left:{{ [case.score * 100, 99] | min }}%"></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <!-- explanation -->
+  <div class="bg-white rounded-xl border border-slate-200 p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-slate-900">Gemini explanation</h2>
+      <form method="post" action="/cases/{{ case.id }}/explain">
+        <button class="text-xs rounded-md border border-slate-300 px-2.5 py-1 text-slate-600 hover:bg-slate-50">
+          {{ 'Regenerate' if explanation else 'Generate' }} explanation
+        </button>
+      </form>
+    </div>
+    {% if explanation and not explanation.error %}
+    <div class="flex items-center gap-2 mb-3">
+      {% set vcls = {'likely_ai_agent': 'bg-red-100 text-red-800', 'likely_human': 'bg-emerald-100 text-emerald-800', 'uncertain': 'bg-amber-100 text-amber-800'} %}
+      <span class="px-2.5 py-1 rounded-full text-xs font-semibold {{ vcls.get(explanation.verdict, 'bg-slate-100 text-slate-600') }}">{{ explanation.verdict.replace('_', ' ') if explanation.verdict else '—' }}</span>
+      <span class="text-xs text-slate-500">{{ explanation.confidence }} confidence</span>
+      {% if explanation.recommended_action %}
+      <span class="ml-auto text-xs text-slate-500">recommends: <span class="font-medium text-slate-800">{{ explanation.recommended_action.replace('_', ' ') }}</span></span>
+      {% endif %}
+    </div>
+    <p class="text-sm text-slate-800 mb-3">{{ explanation.summary }}</p>
+    {% if explanation.evidence %}
+    <div class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Evidence</div>
+    <ul class="list-disc list-inside text-sm text-slate-700 space-y-1 mb-3">
+      {% for e in explanation.evidence %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if explanation.analyst_next_steps %}
+    <div class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Next steps</div>
+    <ul class="list-disc list-inside text-sm text-slate-700 space-y-1">
+      {% for e in explanation.analyst_next_steps %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% elif explanation and explanation.error %}
+    <div class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3">
+      Explanation failed: <span class="font-mono text-xs">{{ explanation.error }}</span>
+    </div>
+    <p class="text-sm text-slate-500">The raw top reasons below still show why the session was flagged.</p>
+    {% else %}
+    <p class="text-sm text-slate-400">No explanation yet — it is generated in the background after the decision, or use the button.</p>
+    {% endif %}
+  </div>
+
+  <!-- top reasons + fingerprint -->
+  <div class="space-y-6">
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-900 mb-3">Top reasons</h2>
+      {% if reasons %}
+      <canvas id="reasonsChart" height="{{ reasons|length * 34 }}"></canvas>
+      {% else %}
+      <p class="text-sm text-slate-400">No dominant signals recorded.</p>
+      {% endif %}
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-900 mb-3">Fingerprint</h2>
+      {% if fingerprint %}
+      <table class="w-full text-xs">
+        <tbody>
+          {% for k, v in fingerprint.items() %}
+          <tr class="border-b border-slate-100">
+            <td class="py-1 pr-3 text-slate-500 font-medium w-40">{{ k }}</td>
+            <td class="py-1 font-mono text-slate-700 break-all">{{ v }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-sm text-slate-400">No fingerprint event recorded.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- mouse-path replay -->
+<div class="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-slate-900">Mouse-path replay</h2>
+    <div class="flex items-center gap-3">
+      <label class="text-xs text-slate-500">Page
+        <select id="replay-page" class="ml-1 rounded-md border border-slate-300 text-xs px-2 py-1"></select>
+      </label>
+      <button id="replay-play" class="rounded-md bg-slate-900 text-white text-xs font-medium px-3 py-1.5 hover:bg-slate-700">▶ Play</button>
+    </div>
+  </div>
+  <canvas id="replay-canvas" class="w-full rounded-lg border border-slate-200"></canvas>
+  <div class="mt-1 flex items-center gap-2">
+    <canvas id="replay-ticks" class="w-full h-6"></canvas>
+  </div>
+  <div class="text-xs text-slate-400 mt-1">grey ticks = keystrokes · red ticks = form submits · dots = clicks</div>
+</div>
+
+<!-- event timeline -->
+<div class="bg-white rounded-xl border border-slate-200 p-5">
+  <h2 class="font-semibold text-slate-900 mb-3">Event timeline</h2>
+  <div id="case-timeline" class="max-h-96 overflow-y-auto"></div>
+</div>
+
+<script>
+const EVENTS = {{ events_json|safe }};
+{% if reasons %}
+const REASONS = {{ reasons|tojson_safe }};
+new Chart(document.getElementById('reasonsChart'), {
+  type: 'bar',
+  data: {
+    labels: REASONS.map(r => r.feature),
+    datasets: [{label: 'contribution', data: REASONS.map(r => r.contribution),
+                backgroundColor: '#0f172a'}]
+  },
+  options: {indexAxis: 'y', plugins: {legend: {display: false},
+    tooltip: {callbacks: {label: c => `contribution ${c.raw} · value ${REASONS[c.dataIndex].value}`}}},
+    scales: {x: {beginAtZero: true}}}
+});
+{% endif %}
+hgMountReplay({
+  canvas: document.getElementById('replay-canvas'),
+  ticks: document.getElementById('replay-ticks'),
+  pageSelect: document.getElementById('replay-page'),
+  playBtn: document.getElementById('replay-play'),
+  events: EVENTS,
+});
+hgRenderTimeline(document.getElementById('case-timeline'), EVENTS);
+</script>
+{% endblock %}

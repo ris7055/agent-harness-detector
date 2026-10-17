@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — HarnessGuard Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
+  <div class="bg-slate-900 text-amber-300 text-center text-xs font-semibold tracking-wide py-1.5 px-3">
+    HarnessGuard analyst console — DEMO · fictional bank data only
+  </div>
+  <main class="flex-1 flex items-center justify-center px-4">
+    <div class="w-full max-w-sm bg-white rounded-xl border border-slate-200 shadow-sm p-8">
+      <div class="flex items-center gap-2 mb-6">
+        <span class="inline-flex w-9 h-9 rounded-lg bg-slate-900 text-white text-sm font-bold items-center justify-center">HG</span>
+        <div>
+          <div class="font-semibold text-slate-900 leading-tight">HarnessGuard</div>
+          <div class="text-xs text-slate-400">analyst console</div>
+        </div>
+      </div>
+      {% if error %}
+      <div class="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login" class="space-y-4">
+        <input type="hidden" name="next" value="{{ next or '/' }}">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1" for="password">Console password</label>
+          <input class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                 type="password" id="password" name="password" required autofocus>
+        </div>
+        <button class="w-full rounded-md bg-slate-900 text-white text-sm font-medium py-2 hover:bg-slate-700" type="submit">Sign in</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>
