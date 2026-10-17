@@ -190,3 +190,92 @@ Result: 64 tests pass. Ready to merge.
 **Scope change (important):** the originally specced `llm_stealth` variant — anti-detection code (spoofing `navigator.webdriver`/fingerprints, synthesising human-like mouse/keystroke timing to beat the classifier) — was **removed from the plan and not built**. That is an evasion tool against real fraud/bot defences and should not ship, public repo or not. SPEC §1, §9.2, §10, §14 and the D4/D6 task files were updated to a non-evasive red team; the stealth case is now a Limitations / Future Work item. The benchmark (D6) still has a genuine human-vs-agent comparison across the four automation variants and a held-out-variant generalisation test (`llm_headless`).
 
 **Incidental fix:** `services/scorer/data/analytics/session_features.jsonl` (a runtime JSONL that a local, non-docker scorer run wrote) had been committed in the D2 review commit. Untracked here and `services/*/data/` added to `.gitignore`.
+
+---
+
+## feat/d5-console
+
+**Built:** analyst console + Gemini explainer per SPEC §7.4–§7.5.
+
+- `services/scorer/app/explain.py` — `generate_explanation(case_id, scorer)`:
+  rebuilds the §7.4 input (action + context, score, band, top reasons
+  recomputed via `scorer.score()` on the stored feature snapshot — exact for
+  rules and XGBoost, compact fingerprint summary, per-feature human
+  median/p25/p75 from `model_meta.json`, else static `HUMAN_REFERENCE`
+  defaults). `LLM_MODE=mock` returns deterministic schema-shaped JSON built
+  from the top reasons; `apikey`/`vertex` call `google-genai` with
+  `response_mime_type="application/json"` + a response schema. Every failure
+  is stored as `{"error": ...}` on the case and never raises into the
+  decision path. Wired as the post-case `BackgroundTasks` task and behind
+  `POST /v1/cases/{id}/explain` (404 unknown case; the D2 501 stub is gone).
+- `services/console/` — FastAPI + Jinja + Tailwind/Chart.js CDN, password
+  login (`CONSOLE_PASSWORD`, HMAC-signed `hg_console` cookie; every page/API
+  gated by middleware). Pages:
+  - `/` live sessions, auto-refresh 3 s via `/api/sessions` — short id, user,
+    started, page count, events, score bar with band text, last decision,
+    grey label tag when a `session_labels` row exists.
+  - `/cases` (open first) + `/cases/{id}` — decision banner, score gauge
+    over the allow/block thresholds, Gemini verdict/confidence/summary/
+    evidence/recommended action/next steps (or the stored `{"error"}` plus
+    raw reasons), Regenerate button (proxies to the scorer with
+    `X-HG-Internal`), top-reasons bar chart, fingerprint table, canvas
+    mouse-path replay (per-page select, scaled to recorded `inner_w` ×
+    `inner_h`, progressive path on Play, click dots, key/submit ticks
+    underneath), event timeline, Confirm fraud / False positive buttons
+    (`cases.status` + `reviewed_at`).
+  - `/log` detection log — every decision newest-first (auto-refresh 3 s)
+    with session link, user, action, amount, score, band, model, latency,
+    top-3 reason chips; filters decision/band/user/time range; `/log.csv`
+    exports the same filtered rows; each row expands to a lazily-fetched
+    event timeline (`/api/decisions/{id}/timeline`).
+  - `/benchmark` — renders `BENCHMARK_URI` (local path or `gs://`) per the
+    D6 schema: metric cards, per-model table, grouped per-variant detection
+    bars, ROC curves, early-detection lines, latency p50/p95, held-out
+    variant card, top features. Missing file → "run ml/benchmark.py".
+- Plumbing: console requirements += jinja2, python-multipart, httpx,
+  google-cloud-storage; scorer += google-genai; compose gives the console
+  `SCORER_URL`/`INTERNAL_TOKEN` and mounts `./data` so the default
+  `BENCHMARK_URI=./data/benchmark.json` resolves inside the container.
+  `tests/fixtures/benchmark.sample.json` follows the D6 schema.
+
+**How to run:** `docker compose up --build` → console http://localhost:8082
+(password `change-me`). Any portal login/transfer traffic appears under
+"Live sessions"; a `step_up`/`block` decision opens a case with a mock
+explanation in ~1 s. Tests: `pytest` — **90 passed, 2 skipped** (the known
+Windows xgboost skips).
+
+**Verified live on the compose stack:** healthchecks, login gate (303 to
+/login, 401 on /api/*), bot telemetry → `/v1/decide` → `block` →
+`CASE-0003` open with `likely_ai_agent` mock explanation citing
+`fp_webdriver`; `/cases`, `/cases/3`, `/api/sessions`,
+`/api/sessions/{id}/events`, `/api/decisions` (+ filters), `/log.csv`,
+regenerate-explanation round-trip through the console → scorer, and
+status update → `confirmed_fraud` all verified with curl.
+
+**Deviations from spec:**
+- `decisions` stores no request context and no `top_reasons` (schema §8.1
+  unchanged). The explainer reconstructs context from the session's latest
+  `transfers`/`loan_applications` row and recomputes reasons from the
+  stored feature snapshot via `scorer.score()` — identical to what the
+  decision used for both rules and XGBoost. The console's reasons chart
+  and `/log` reason chips use `score_rules` on stored features: exact for
+  `model_version='rules'`, an approximation if a trained model is active
+  (its SHAP-style reasons are not persisted).
+- Explainer "human reference ranges": reads `human_reference` /
+  `feature_reference` / `feature_stats` keys from `model_meta.json` (D6
+  writes per-feature median/p25/p75 — whichever key D6 emits should be one
+  of these, or add it); static `HUMAN_REFERENCE` medians cover the
+  rule-relevant features when no model is loaded.
+
+**Known gaps:**
+- The `LLM_MODE=apikey` path is implemented (`genai.Client(api_key=...)`,
+  JSON response schema, errors → `{"error"}`) but was not exercised with a
+  real Gemini key in this environment — the acceptance item is left
+  unticked. Mock mode covers the same storage/schema contract.
+- Mouse-path replay verified via the events API + code inspection; no
+  Playwright browser on this machine for a pixel check.
+- Optional "Live demo" toast/animation on `/` was not built (task marks it
+  optional).
+- `console.js` must load synchronously (it is, via a plain `<script>` in
+  base.html): inline page scripts call `hgMountReplay`/`hgRenderTimeline`
+  at parse time.
