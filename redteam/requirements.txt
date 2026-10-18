@@ -2,4 +2,5 @@
 playwright>=1.44
 google-genai>=1.0
 pydantic>=2.6
--e ../core
+# Paths are relative to the folder you run pip from: run it from the repo root.
+-e ./core
