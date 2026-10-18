@@ -22,14 +22,17 @@ RUN_COMMON=(--region "$REGION" --service-account "$RUN_SA_EMAIL"
 
 # The portal and console are the public, judge-facing links (the submission's
 # Final Product Link), so keep one warm instance each -> no cold-start lag for
-# a judge opening the URL. The scorer scales to zero (its first call after idle
-# adds a ~2 s warm-up, acceptable). Set WARM_PORTAL=0 to save a little credit.
+# a judge opening the URL. The scorer stays warm too: the portal waits at most
+# 2 s for a decision, and a cold scorer start takes longer, so the first
+# transaction after idle would fail open to OTP while the scorer later opens a
+# block case. Set WARM_*=0 to save a little credit (not recommended for judging).
 WARM_PORTAL="${WARM_PORTAL:-1}"
 WARM_CONSOLE="${WARM_CONSOLE:-1}"
+WARM_SCORER="${WARM_SCORER:-1}"
 
 log "Deploying scorer..."
 gcloud run deploy scorer --image "$AR/scorer:$TAG" "${RUN_COMMON[@]}" \
-  --min-instances=0 \
+  --min-instances="$WARM_SCORER" \
   --set-env-vars "${COMMON_ENV},${DB_ENV},EVENT_TRANSPORT=pubsub,ANALYTICS_SINK=bigquery,BQ_DATASET=${BQ_DATASET},MODEL_URI=gs://${BUCKET}/models/latest.json,BENCHMARK_URI=gs://${BUCKET}/benchmark/benchmark.json,LLM_MODE=vertex,GEMINI_MODEL=${GEMINI_MODEL},ALLOW_BELOW=${ALLOW_BELOW},BLOCK_ABOVE=${BLOCK_ABOVE}" \
   --set-secrets "DB_PASS=db-password:latest,INTERNAL_TOKEN=internal-token:latest,PUBSUB_PUSH_TOKEN=pubsub-push-token:latest,IP_HASH_SALT=ip-hash-salt:latest"
 SCORER_URL="$(gcloud run services describe scorer --region "$REGION" --format='value(status.url)')"

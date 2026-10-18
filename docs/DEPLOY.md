@@ -88,11 +88,13 @@ always-on:
 
 - **Do NOT stop Cloud SQL.** `teardown.sh` (stop) or `--delete` would take the
   portal down. Leave the instance running the whole time.
-- **The portal and console stay warm automatically.** `deploy.sh` gives them
-  `min-instances=1`, so a judge opening the link gets no cold-start lag. (The
-  scorer scales to zero; its first call after idle adds ~2 s, which is fine. To
-  trim a little credit you can set `WARM_PORTAL=0 WARM_CONSOLE=0 bash
-  deploy/deploy.sh`, at the cost of a brief wake-up on the first visit.)
+- **All three services stay warm automatically.** `deploy.sh` gives portal,
+  console and scorer `min-instances=1`, so a judge gets no cold-start lag. The
+  scorer matters most: the portal waits at most 2 s for a decision, and a cold
+  scorer takes longer, so without it the first transaction after idle would
+  fall back to OTP while the case page later says "block". (`WARM_PORTAL=0
+  WARM_CONSOLE=0 WARM_SCORER=0 bash deploy/deploy.sh` saves a little credit
+  during development only.)
 - **Keep credit alive past Dec 4.** Keep the budget alert on. If the 90-day free
   trial would expire before the finale, upgrade the project to pay-as-you-go
   (Billing → upgrade) so services don't pause — the ongoing cost is still only
@@ -108,7 +110,7 @@ always-on:
 
 ## Rough cost
 
-With the smallest Cloud SQL tier (`db-f1-micro`), Cloud Run at `min-instances=0`,
+With the smallest Cloud SQL tier (`db-f1-micro`), Cloud Run with one warm instance per service,
 Gemini Flash and no always-on Vertex endpoints, a few days of hackathon use is a
 small fraction of the trial credit — mostly the Cloud SQL hours (so stop it when
 idle). The console password is always retrievable:

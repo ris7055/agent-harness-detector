@@ -24,6 +24,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
                                Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
+from markupsafe import Markup
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -104,7 +105,13 @@ def _json(data: Any) -> str:
     return json.dumps(data, default=str).replace("</", "<\\/")
 
 
-templates.env.filters["tojson_safe"] = _json
+def _tojson_safe(data: Any) -> Markup:
+    # Markup: Jinja autoescape would otherwise turn quotes into &#34; and
+    # break the inline <script> (blank reasons chart, replay and timeline).
+    return Markup(_json(data))
+
+
+templates.env.filters["tojson_safe"] = _tojson_safe
 
 
 def _fmt_dt(value) -> str:
