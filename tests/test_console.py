@@ -126,6 +126,20 @@ def test_case_shows_mock_explanation(authed, scorer_client):
     assert "fp_webdriver" in r.text  # mock explanation cites the feature
 
 
+def test_case_page_inline_script_is_valid_js(authed, scorer_client):
+    """REASONS/EVENTS must be raw JSON in the <script>, not HTML-escaped."""
+    import json
+    import re
+    _, body = _bot_case(scorer_client)
+    html = authed.get(f"/cases/{body['case_id']}").text
+    script = re.findall(r"<script>(.*?)</script>", html, re.S)[-1]
+    assert "&#34;" not in script and "&quot;" not in script
+    reasons = re.search(r"const REASONS = (.*);", script).group(1)
+    assert json.loads(reasons)[0]["feature"]
+    events = re.search(r"const EVENTS = (.*);", script).group(1)
+    assert isinstance(json.loads(events), list)
+
+
 def test_case_list_flags_failed_explanation(authed, scorer_client):
     """A stored {"error": ...} explanation shows as 'error', not 'ready'."""
     _, body = _bot_case(scorer_client)
