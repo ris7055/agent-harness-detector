@@ -39,6 +39,13 @@ def _read_uri(uri: str) -> bytes:
     return Path(uri).read_bytes()
 
 
+def _is_not_found(exc: BaseException) -> bool:
+    """True for a missing local file or a GCS 404 (no model trained yet)."""
+    if isinstance(exc, FileNotFoundError):
+        return True
+    return type(exc).__name__ == "NotFound" or getattr(exc, "code", None) == 404
+
+
 def _sibling(uri: str, name: str) -> str:
     """<dir>/<name> next to ``uri`` (works for local paths and gs://)."""
     return uri.rsplit("/", 1)[0].rstrip("/") + "/" + name
@@ -99,10 +106,16 @@ class Scorer:
             self.meta = meta
             self.version = str(meta.get("version") or "xgboost")
             log.info("loaded XGBoost model version=%s from %s", self.version, m_uri)
-        except Exception:  # noqa: BLE001 - always start, on rules
-            log.exception(
-                "MODEL_URI=%s failed to load; falling back to rules", model_uri
-            )
+        except Exception as exc:  # noqa: BLE001 - always start, on rules
+            if _is_not_found(exc):
+                # Expected until a model is trained (D6): no scary traceback.
+                log.warning(
+                    "no model at MODEL_URI=%s yet; using rules baseline", model_uri
+                )
+            else:
+                log.exception(
+                    "MODEL_URI=%s failed to load; falling back to rules", model_uri
+                )
             self._booster = None
             self._feature_names = None
             self.meta = {}

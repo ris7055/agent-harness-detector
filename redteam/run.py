@@ -7,7 +7,7 @@ and logs the outcome of each run. Variants (all non-evasive):
   llm_headless  - Gemini observe->act loop, headless Chromium
   llm_headed    - same, headed Chromium
 
-Examples:
+Examples (from the repo root; `python -m redteam.run` also works):
   python redteam/run.py --base-url http://localhost:8080 --variant script_fill --n 5
   python redteam/run.py --base-url http://localhost:8080 --variant llm_headless --n 10 --task transfer_new_payee
 """
@@ -20,6 +20,11 @@ import random
 import sys
 import time
 import traceback
+
+if __package__ in (None, ""):
+    # Allow `python redteam/run.py ...` as well as `python -m redteam.run ...`.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    __package__ = "redteam"
 
 from .agent import run_llm_agent
 from .common import (VARIANTS, check_target, log_run, make_task, read_outcome,
