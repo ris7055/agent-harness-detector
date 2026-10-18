@@ -22,8 +22,8 @@ system you do not own.
 ## Setup (laptop)
 
 ```powershell
-cd redteam
-pip install -r requirements.txt
+# from the repo root
+pip install -r redteam/requirements.txt
 playwright install chromium
 ```
 
@@ -40,10 +40,10 @@ policy -- no key needed, useful for a dry run and for tests.
 ## Run
 
 ```powershell
-# start the stack first (repo root): docker compose up --build
-python run.py --base-url http://localhost:8080 --variant script_fill --n 5
-python run.py --base-url http://localhost:8080 --variant script_type --n 5
-python run.py --base-url http://localhost:8080 --variant llm_headless --n 10
+# from the repo root; start the local stack first: docker compose up --build
+python redteam/run.py --base-url http://localhost:8080 --variant script_fill --n 5
+python redteam/run.py --base-url http://localhost:8080 --variant script_type --n 5
+python redteam/run.py --base-url http://localhost:8080 --variant llm_headless --n 10
 ```
 
 Each run appends one JSON line to `data/redteam_runs.jsonl`
