@@ -40,8 +40,10 @@
           <span class="px-2 py-0.5 rounded-full text-xs font-medium {{ scls.get(c.status, 'bg-slate-100 text-slate-600') }}">{{ c.status.replace('_', ' ') }}</span>
         </td>
         <td class="px-4 py-2.5">
-          {% if c.has_explanation %}
+          {% if c.explanation_status == 'ready' %}
           <span class="text-xs text-emerald-700 font-medium">ready</span>
+          {% elif c.explanation_status == 'error' %}
+          <span class="text-xs text-amber-700 font-medium" title="Gemini call failed; open the case and press Regenerate">error</span>
           {% else %}
           <span class="text-xs text-slate-400">pending</span>
           {% endif %}

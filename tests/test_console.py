@@ -126,6 +126,20 @@ def test_case_shows_mock_explanation(authed, scorer_client):
     assert "fp_webdriver" in r.text  # mock explanation cites the feature
 
 
+def test_case_list_flags_failed_explanation(authed, scorer_client):
+    """A stored {"error": ...} explanation shows as 'error', not 'ready'."""
+    _, body = _bot_case(scorer_client)
+    with db.get_session() as s:
+        s.execute(text("UPDATE cases SET explanation = CAST(:e AS jsonb) "
+                       "WHERE id=:i"),
+                  {"e": '{"error": "vertex unavailable"}', "i": body["case_id"]})
+        s.commit()
+    import sys
+    rows = {c["id"]: c for c in sys.modules["console_app.queries"].list_cases()}
+    assert rows[body["case_id"]]["explanation_status"] == "error"
+    assert "Regenerate" in authed.get("/cases").text
+
+
 def test_case_status_updates(authed, scorer_client):
     _, body = _bot_case(scorer_client)
     case_id = body["case_id"]

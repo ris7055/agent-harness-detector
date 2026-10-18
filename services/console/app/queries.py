@@ -50,7 +50,9 @@ def list_cases(limit: int = 200) -> list[dict[str, Any]]:
         """
         SELECT c.id, c.session_id, c.action, c.score, c.decision, c.status,
                c.created_at, c.reviewed_at,
-               (c.explanation IS NOT NULL) AS has_explanation,
+               CASE WHEN c.explanation IS NULL THEN 'pending'
+                    WHEN c.explanation ? 'error' THEN 'error'
+                    ELSE 'ready' END AS explanation_status,
                u.username
         FROM cases c
         LEFT JOIN sessions s ON s.id = c.session_id
